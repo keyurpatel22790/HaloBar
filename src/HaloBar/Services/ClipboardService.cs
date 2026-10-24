@@ -37,6 +37,8 @@ internal sealed class ClipboardService
 
     public IReadOnlyList<ClipEntry> Entries => _entries;
     public event Action? Changed;
+    /// <summary>A picture was copied (screenshots arrive this way).</summary>
+    public event Action<ClipEntry>? PictureAdded;
 
     /// <param name="post">Runs an action on the window thread.</param>
     public ClipboardService(IntPtr hwnd, int capacity, Action<Action> post)
@@ -110,6 +112,7 @@ internal sealed class ClipboardService
         }
         Save();
         Changed?.Invoke();
+        if (entry.Kind == ClipKind.Image) PictureAdded?.Invoke(entry);
     }
 
     /// <summary>Puts an old entry back on the clipboard and moves it to the front.</summary>
@@ -127,6 +130,27 @@ internal sealed class ClipboardService
         Changed?.Invoke();
         return true;
     }
+
+    public IReadOnlyList<string> Snippets => _snippets();
+    private Func<List<string>> _snippets = () => [];
+
+    /// <summary>Pinned texts kept in settings, shown under the Pinned filter.</summary>
+    public void UseSnippets(Func<List<string>> list, Action save) { _snippets = list; _saveSnippets = save; }
+    private Action _saveSnippets = () => { };
+
+    public bool IsPinned(string text) => _snippets().Contains(text);
+
+    public void TogglePin(string text)
+    {
+        var list = _snippets();
+        if (!list.Remove(text)) list.Insert(0, text);
+        while (list.Count > 30) list.RemoveAt(list.Count - 1);
+        _saveSnippets();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Puts text on the clipboard (it then shows up first in the history).</summary>
+    public bool CopyText(string text) => ClipboardIO.Write(_hwnd, new ClipboardContent(text, null, null, null));
 
     public void Clear()
     {

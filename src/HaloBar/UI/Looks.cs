@@ -4,7 +4,7 @@ using SkiaSharp;
 namespace HaloBar.UI;
 
 /// <summary>How a surface moves or colours itself beyond its fixed colours.</summary>
-internal enum SurfaceEffect { None, Aurora, Album }
+internal enum SurfaceEffect { None, Aurora, Album, Acrylic }
 
 /// <summary>Where an accent's colour comes from.</summary>
 internal enum AccentSource { Fixed, Surface, Windows, Album, Rainbow }
@@ -16,6 +16,7 @@ internal sealed record SurfaceLook(string Id, string Name, SKColor Top, SKColor 
     SKColor Accent, SurfaceEffect Effect = SurfaceEffect.None)
 {
     public bool IsLight => Text.Red < 128;
+    public bool SeeThrough => Effect == SurfaceEffect.Acrylic;
 }
 
 internal sealed record AccentLook(string Id, string Name, SKColor Color, AccentSource Source = AccentSource.Fixed);
@@ -40,6 +41,10 @@ internal static class Looks
         new("mint", "Mint", new(0xE2, 0xF6, 0xEE), new(0xC9, 0xEC, 0xDD), new(0x99, 0xD6, 0xBD), new(0x1C, 0x36, 0x2C), new(0x1E, 0x9E, 0x6E)),
         // Slowly drifting colours along the edge and through the surface.
         new("aurora", "Aurora", new(0x10, 0x10, 0x18), new(0x08, 0x08, 0x0E), SKColors.White.WithAlpha(40), Light, new(0x8A, 0xF0, 0xD0), SurfaceEffect.Aurora),
+        // See-through: the blurred desktop behind, under a tint (Windows 11's own menus look like this).
+        new("acrylic", "Acrylic", new(0x1C, 0x1C, 0x22, 0x9C), new(0x14, 0x14, 0x18, 0xB0), SKColors.White.WithAlpha(40), Light, new(0x7C, 0x9C, 0xFF), SurfaceEffect.Acrylic),
+        new("frost", "Frost", new(0xF6, 0xF6, 0xFA, 0x9C), new(0xEC, 0xEC, 0xF2, 0xB0), new(0xFF, 0xFF, 0xFF, 0x90), new(0x1E, 0x1E, 0x24), new(0x3B, 0x6E, 0xF0), SurfaceEffect.Acrylic),
+        new("candy", "Candy glass", new(0xFF, 0xB8, 0xD6, 0x88), new(0xC9, 0xB6, 0xFF, 0x9C), new(0xFF, 0xFF, 0xFF, 0x80), new(0x3A, 0x20, 0x38), new(0xE0, 0x4E, 0x96), SurfaceEffect.Acrylic),
         // Takes its colours from the album art of whatever is playing.
         new("album", "Album", new(0x14, 0x14, 0x16), new(0x0B, 0x0B, 0x0C), SKColors.White.WithAlpha(30), Light, new(0x7C, 0x9C, 0xFF), SurfaceEffect.Album),
     ];

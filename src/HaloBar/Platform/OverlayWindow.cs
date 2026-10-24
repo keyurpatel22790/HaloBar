@@ -113,6 +113,33 @@ internal sealed class OverlayWindow : NativeWindow
     public event Action<int, int>? MouseUp;
     public event Action<int>? MouseWheel;
     public event Action? DpiChanged;
+    public event Action<char>? CharTyped;
+    public event Action<int>? KeyPressed;
+    public event Action? FocusLost;
+
+    private bool _typing;
+
+    /// <summary>
+    /// Lets the window take the keyboard so a text field on the island can be typed into.
+    /// The window normally never activates, so the app you're in keeps focus.
+    /// </summary>
+    public void BeginTyping()
+    {
+        if (_typing) return;
+        _typing = true;
+        var style = (long)GetWindowLongPtrW(Handle, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE;
+        SetWindowLongPtrW(Handle, GWL_EXSTYLE, new IntPtr(style));
+        SetForegroundWindow(Handle);
+        SetFocus(Handle);
+    }
+
+    public void EndTyping()
+    {
+        if (!_typing) return;
+        _typing = false;
+        var style = (long)GetWindowLongPtrW(Handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE;
+        SetWindowLongPtrW(Handle, GWL_EXSTYLE, new IntPtr(style));
+    }
 
     public OverlayWindow(int widthDip, int heightDip, MonitorInfo monitor) : base("HaloBar.Overlay", ExStyle, WS_POPUP)
     {
@@ -125,15 +152,37 @@ internal sealed class OverlayWindow : NativeWindow
         ShowWindow(Handle, 4 /* SW_SHOWNOACTIVATE */);
     }
 
-    /// <summary>Centres the window at the top of <paramref name="monitor"/>, sized for its DPI.</summary>
-    public void Place(MonitorInfo monitor)
+    private float _size = 1;
+    private string _position = "center";
+    private int _margin = 24;
+
+    /// <summary>The island's size (1 = 100%), where it sits along the top edge, and its margin there in DIPs.</summary>
+    public void SetLayout(float size, string position, int margin)
+    {
+        _size = Math.Clamp(size, 0.6f, 1.6f);
+        _position = position;
+        _margin = margin;
+    }
+
+    /// <summary>
+    /// Places the window at the top of <paramref name="monitor"/>, sized for its DPI and the island
+    /// size. The island keeps <paramref name="inset"/> DIPs from the window's sides, so for left and
+    /// right placement the window sits that far past the margin.
+    /// </summary>
+    public void Place(MonitorInfo monitor, float inset = 40)
     {
         Monitor = monitor;
-        Scale = monitor.Scale;
+        Scale = monitor.Scale * _size;
         Width = (int)Math.Ceiling(_widthDip * Scale);
         Height = (int)Math.Ceiling(_heightDip * Scale);
         var bounds = monitor.Bounds;
-        var x = bounds.Left + (bounds.Width - Width) / 2;
+        var margin = (int)(_margin * monitor.Scale);
+        var x = _position switch
+        {
+            "left" => bounds.Left + margin - (int)(inset * Scale),
+            "right" => bounds.Right - margin - Width + (int)(inset * Scale),
+            _ => bounds.Left + (bounds.Width - Width) / 2,
+        };
         SetWindowPos(Handle, HWND_TOPMOST, x, bounds.Top, Width, Height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 
@@ -170,7 +219,16 @@ internal sealed class OverlayWindow : NativeWindow
         switch (msg)
         {
             case WM_MOUSEACTIVATE:
-                return new IntPtr(MA_NOACTIVATE);
+                return new IntPtr(_typing ? MA_ACTIVATE : MA_NOACTIVATE);
+            case WM_CHAR:
+                CharTyped?.Invoke((char)(long)wParam);
+                return IntPtr.Zero;
+            case WM_KEYDOWN:
+                KeyPressed?.Invoke((int)(long)wParam);
+                return IntPtr.Zero;
+            case WM_KILLFOCUS:
+                if (_typing) FocusLost?.Invoke();
+                return IntPtr.Zero;
             case WM_SETCURSOR:
                 SetCursor(LoadCursorW(IntPtr.Zero, IDC_HAND));
                 return new IntPtr(1);

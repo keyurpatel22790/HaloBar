@@ -29,6 +29,99 @@ internal sealed class AppSettings
     /// <summary>The music card shows the cover's colours behind it.</summary>
     public bool AlbumCard { get; set; } = true;
 
+    // HUDs: quick read-outs that take over the pill for a moment.
+    public bool ShowVolumeHud { get; set; } = true;
+    public bool ShowBrightnessHud { get; set; } = true;
+    public bool ShowBatteryHud { get; set; } = true;
+    public bool ShowBluetoothHud { get; set; } = true;
+    public bool ShowLockKeysHud { get; set; } = true;
+    public bool ShowMicHud { get; set; } = true;
+    /// <summary>Green and orange dots on the pill while the camera or microphone is in use.</summary>
+    public bool ShowPrivacyIndicator { get; set; } = true;
+    public bool ShowBatteryEstimate { get; set; } = true;
+
+    // Music.
+    public bool ShowLyrics { get; set; } = true;
+    /// <summary>"bars" or "pixels": what plays beside the artwork on the pill.</summary>
+    public string Visualizer { get; set; } = "bars";
+    /// <summary>"simple", "wave", "pixels", "comet" or "hearts".</summary>
+    public string ProgressBar { get; set; } = "wave";
+
+    // Home widgets.
+    /// <summary>Up to four tiles on the Home panel, in order.</summary>
+    public List<string> HomeTiles { get; set; } = ["date", "weather", "stats", "timer"];
+    public string WeatherCity { get; set; } = "";
+    public double? WeatherLatitude { get; set; }
+    public double? WeatherLongitude { get; set; }
+    public bool WeatherFahrenheit { get; set; }
+    /// <summary>Colourful tints the weather tile like the sky; otherwise line icons and plain type.</summary>
+    public bool WeatherColourful { get; set; } = true;
+    public string WorldClockCity { get; set; } = "London";
+    public int FocusMinutes { get; set; } = 25;
+    public int BreakMinutes { get; set; } = 5;
+    public string CalendarIcsUrl { get; set; } = "";
+    /// <summary>Show a countdown on the pill in the minutes before a meeting.</summary>
+    public bool MeetingCountdown { get; set; } = true;
+    public List<Services.Reminder> Reminders { get; set; } = [];
+    public List<Services.TodoItem> Todos { get; set; } = [];
+    public string TickerSymbols { get; set; } = "BTC, ETH, ^NSEI";
+    public string PhotosFolder { get; set; } = "";
+
+    // Shelf and activities.
+    public List<Services.SavedShelfFile> ShelfFiles { get; set; } = [];
+    /// <summary>Screenshots taken with the hotkey are kept on the file shelf.</summary>
+    public bool CapturesToShelf { get; set; } = true;
+    public bool ShowDownloadActivity { get; set; } = true;
+    public bool ShowCallActivity { get; set; } = true;
+
+    // Tools and integrations.
+    public bool ObsEnabled { get; set; }
+    /// <summary>Read OBS's websocket port and password from its own settings on this PC.</summary>
+    public bool ObsAuto { get; set; } = true;
+    public int ObsPort { get; set; } = 4455;
+    public string ObsPassword { get; set; } = "";
+    public bool AgentsEnabled { get; set; } = true;
+    /// <summary>A notice when an agent finishes or needs you.</summary>
+    public bool AgentsNotify { get; set; } = true;
+    /// <summary>Launcher slots as "Name|AppId".</summary>
+    public List<string> LaunchApps { get; set; } = [];
+
+    public bool PhoneShare { get; set; } = true;
+    public bool CameraEnabled { get; set; } = true;
+    public string ChatTwitch { get; set; } = "";
+    /// <summary>New chat messages pop up on the pill while the chat panel is closed.</summary>
+    public bool ChatPopups { get; set; } = true;
+    public List<string> Snippets { get; set; } = [];
+
+    // Which panels the open island shows.
+    public bool ChatPanel { get; set; }
+    public bool LauncherPanel { get; set; } = true;
+    public bool RemindersPanel { get; set; } = true;
+    public bool NotificationsPanel { get; set; } = true;
+
+    // Island shape and placement.
+    /// <summary>"left", "center" or "right" along the top edge.</summary>
+    public string Position { get; set; } = "center";
+    public int EdgeMargin { get; set; } = 24;
+    public int TopGap { get; set; } = 6;
+    /// <summary>Percent: the pill, the card and their text scale together.</summary>
+    public int Size { get; set; } = 100;
+    /// <summary>Percent: 0 is square, 100 fully round.</summary>
+    public int CornerRoundness { get; set; } = 100;
+    /// <summary>"island" floats below the edge; "notch" hangs from it and curves into it.</summary>
+    public string Shape { get; set; } = "island";
+    /// <summary>Nothing at the top until the pointer rests on the top edge.</summary>
+    public bool HiddenUntilHover { get; set; }
+    /// <summary>Collapse to a thin line while a maximised window is in front, so it never covers tabs.</summary>
+    public bool SlimWhenCovered { get; set; } = true;
+    /// <summary>"relaxed", "normal" or "quick".</summary>
+    public string AnimationSpeed { get; set; } = "normal";
+    /// <summary>Per-app behaviour while that app is in front.</summary>
+    public List<AppRule> AppRules { get; set; } = [];
+    /// <summary>A strip with CPU, GPU, memory and time while a game is full screen.</summary>
+    public bool GameStrip { get; set; } = true;
+    private static readonly object SaveGate = new();
+
     public static AppSettings Load()
     {
         try
@@ -48,13 +141,32 @@ internal sealed class AppSettings
         return new AppSettings();
     }
 
+    /// <summary>Writes the settings. Safe to call from any thread; writes go through a temp file.</summary>
     public void Save()
     {
-        try { File.WriteAllText(FilePath, JsonSerializer.Serialize(this, SettingsJson.Default.AppSettings)); }
-        catch (IOException ex) { Log.Write($"Settings not saved: {ex.Message}"); }
+        lock (SaveGate)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(this, SettingsJson.Default.AppSettings);
+                File.WriteAllText(FilePath + ".tmp", json);
+                File.Move(FilePath + ".tmp", FilePath, overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                Log.Write($"Settings not saved: {ex.Message}");
+            }
+        }
     }
 }
 
-[JsonSourceGenerationOptions(WriteIndented = true)]
+/// <summary>What the island does while an app is in front: "hide", "slim" or "normal".</summary>
+internal sealed class AppRule
+{
+    public string Process { get; set; } = "";
+    public string Behaviour { get; set; } = "slim";
+}
+
+[JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(AppSettings))]
 internal partial class SettingsJson : JsonSerializerContext;

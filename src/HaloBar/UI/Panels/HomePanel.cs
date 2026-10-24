@@ -1,0 +1,458 @@
+using HaloBar.Services;
+using SkiaSharp;
+
+namespace HaloBar.UI.Panels;
+
+/// <summary>
+/// Up to four widget tiles: date, weather, system stats, Pomodoro timer, world clock, to-do,
+/// battery and next meeting. "Edit" picks which ones and in what order.
+/// </summary>
+internal sealed class HomePanel : Panel
+{
+    public const int MaxTiles = 4;
+
+    public static readonly (string Id, string Name)[] Catalogue =
+    [
+        ("date", "Date"), ("weather", "Weather"), ("stats", "Stats"), ("timer", "Timer"),
+        ("clock", "World clock"), ("todo", "To-do"), ("battery", "Battery"), ("calendar", "Calendar"),
+        ("ticker", "Ticker"), ("photos", "Photos"),
+    ];
+
+    /// <summary>Cities for the world-clock tile; click the tile to move to the next.</summary>
+    public static readonly (string City, string Zone)[] Cities =
+    [
+        ("London", "GMT Standard Time"), ("New York", "Eastern Standard Time"), ("San Francisco", "Pacific Standard Time"),
+        ("Chicago", "Central Standard Time"), ("São Paulo", "E. South America Standard Time"), ("Paris", "Romance Standard Time"),
+        ("Berlin", "W. Europe Standard Time"), ("Cairo", "Egypt Standard Time"), ("Moscow", "Russian Standard Time"),
+        ("Dubai", "Arabian Standard Time"), ("Mumbai", "India Standard Time"), ("Singapore", "Singapore Standard Time"),
+        ("Beijing", "China Standard Time"), ("Seoul", "Korea Standard Time"), ("Tokyo", "Tokyo Standard Time"),
+        ("Sydney", "AUS Eastern Standard Time"), ("Auckland", "New Zealand Standard Time"),
+    ];
+
+    private bool _editing;
+    private string? _fieldFor;
+    private readonly TextField _field;
+
+    public HomePanel(Hub hub) : base(hub)
+    {
+        _field = new TextField("", text =>
+        {
+            var target = _fieldFor;
+            _fieldFor = null;
+            switch (target)
+            {
+                case "weather": _ = Hub.Weather.SetCityAsync(text); break;
+                case "calendar": _ = Hub.Calendar.SetUrlAsync(text); break;
+                case "todo": Hub.Reminders.AddTodo(text); break;
+                case "ticker": Hub.Ticker.SetSymbols(text); break;
+                case "photos":
+                    Hub.Settings.PhotosFolder = text.Trim().Trim('"');
+                    Hub.Settings.Save();
+                    _photos = null;
+                    break;
+            }
+        });
+    }
+
+    public override string Title => "Home";
+    public override void Icon(SKCanvas c, float cx, float cy, float size, SKColor color) => Icons.Home(c, cx, cy, size, color);
+    public override double FrameInterval => Hub.Timer.Running ? 0.25 : 1;
+
+    public override IEnumerable<(string Label, Action Click)> Actions => [(_editing ? "Done" : "Edit", () => _editing = !_editing)];
+
+    private List<string> Tiles => Hub.Settings.HomeTiles;
+
+    public override void Draw(Ui ui, SKRect body)
+    {
+        if (_editing)
+        {
+            DrawEditor(ui, body);
+            return;
+        }
+        var tiles = Tiles.Where(id => Catalogue.Any(c => c.Id == id)).Take(MaxTiles).ToList();
+        if (tiles.Count == 0)
+        {
+            ui.Empty(body, "No tiles", "Choose some with Edit");
+            return;
+        }
+        const float gap = 10;
+        var width = (body.Width - 36 - gap * (tiles.Count - 1)) / tiles.Count;
+        for (var i = 0; i < tiles.Count; i++)
+        {
+            var x = body.Left + 18 + i * (width + gap);
+            var tile = new SKRect(x, body.Top + 4, x + width, body.Bottom - 10);
+            ui.Fill(tile, 16, Theme.Overlay(14));
+            if (_fieldFor == tiles[i] && ui.Focused == _field)
+            {
+                DrawField(ui, tile, tiles[i]);
+                continue;
+            }
+            ui.Canvas.Save();
+            ui.Canvas.ClipRoundRect(new SKRoundRect(tile, 16), SKClipOperation.Intersect, true);
+            switch (tiles[i])
+            {
+                case "date": DrawDate(ui, tile); break;
+                case "weather": DrawWeather(ui, tile); break;
+                case "stats": DrawStats(ui, tile); break;
+                case "timer": DrawTimer(ui, tile); break;
+                case "clock": DrawClock(ui, tile); break;
+                case "todo": DrawTodo(ui, tile); break;
+                case "battery": DrawBattery(ui, tile); break;
+                case "calendar": DrawCalendar(ui, tile); break;
+                case "ticker": DrawTicker(ui, tile); break;
+                case "photos": DrawPhotos(ui, tile); break;
+            }
+            ui.Canvas.Restore();
+        }
+    }
+
+    private void Edit(Ui ui, string tile, string placeholder, string text = "")
+    {
+        _fieldFor = tile;
+        _field.Placeholder = placeholder;
+        _field.Text = text;
+        _field.Caret = text.Length;
+        ui.Focus(_field);
+    }
+
+    private void DrawField(Ui ui, SKRect tile, string id)
+    {
+        var title = id switch
+        {
+            "weather" => "City", "calendar" => "Calendar link (ICS)", "ticker" => "Symbols, comma-separated",
+            "photos" => "Photos folder", _ => "New to-do",
+        };
+        ui.Text(title, tile.Left + 12, tile.Top + 22, tile.Width - 24, 11.5f, Theme.Weight.SemiBold, Theme.Dim);
+        ui.Field(_field, new SKRect(tile.Left + 8, tile.MidY - 14, tile.Right - 8, tile.MidY + 14), 12);
+        ui.Text("Enter to save · Esc to cancel", tile.MidX, tile.Bottom - 12, tile.Width - 12, 10, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+    }
+
+    // ───────────────────────────── tiles ─────────────────────────────
+
+    private void DrawDate(Ui ui, SKRect t)
+    {
+        var now = ui.Now;
+        ui.Text(now.ToString("dddd"), t.Left + 14, t.Top + 24, t.Width - 28, 12, Theme.Weight.SemiBold, Theme.Accent);
+        ui.Text(now.Day.ToString(), t.Left + 14, t.Top + 72, t.Width - 28, 42, Theme.Weight.Bold);
+        ui.Text(now.ToString("MMMM yyyy"), t.Left + 14, t.Top + 92, t.Width - 28, 11.5f, Theme.Weight.Regular, Theme.Dim);
+        if (Hub.Calendar.Next is { } e && e.Start.Date == now.Date)
+            ui.Text($"{e.Start:HH:mm} {e.Title}", t.Left + 14, t.Bottom - 12, t.Width - 28, 10.5f, Theme.Weight.Regular, Theme.Dim);
+    }
+
+    private void DrawWeather(Ui ui, SKRect t)
+    {
+        var w = Hub.Weather.Snapshot;
+        var colourful = Hub.Settings.WeatherColourful;
+        if (w != null && colourful)
+        {
+            // Tint the tile like the sky.
+            var (top, bottom) = w.Code switch
+            {
+                0 or 1 when w.IsDay => (new SKColor(0x3A, 0x8D, 0xE0), new SKColor(0x7B, 0xC4, 0xF5)),
+                2 or 3 when w.IsDay => (new SKColor(0x6C, 0x82, 0x9C), new SKColor(0x9F, 0xB3, 0xC8)),
+                >= 51 and <= 67 or >= 80 and <= 82 or >= 95 => (new SKColor(0x3C, 0x4A, 0x5E), new SKColor(0x5D, 0x70, 0x88)),
+                >= 71 and <= 77 or 85 or 86 => (new SKColor(0x8C, 0xA0, 0xB8), new SKColor(0xC8, 0xD6, 0xE4)),
+                _ when !w.IsDay => (new SKColor(0x14, 0x1E, 0x3C), new SKColor(0x2A, 0x3A, 0x66)),
+                _ => (new SKColor(0x5A, 0x6E, 0x88), new SKColor(0x88, 0x9C, 0xB4)),
+            };
+            using var sky = SKShader.CreateLinearGradient(new SKPoint(t.MidX, t.Top), new SKPoint(t.MidX, t.Bottom), [top, bottom], SKShaderTileMode.Clamp);
+            using var paint = new SKPaint { Shader = sky, IsAntialias = true };
+            ui.Canvas.DrawRoundRect(t, 16, 16, paint);
+        }
+        var text = w != null && colourful ? SKColors.White : Theme.Text;
+        var dim = w != null && colourful ? SKColors.White.WithAlpha(200) : Theme.Dim;
+        if (w == null)
+        {
+            Icons.Cloud(ui.Canvas, t.MidX, t.Top + 46, 30, Theme.Faint);
+            ui.Text(Hub.Weather.Status, t.MidX, t.Top + 92, t.Width - 16, 12, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Center);
+            ui.Text("Click to set a city", t.MidX, t.Top + 110, t.Width - 16, 10.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            ui.Hit(t, () => Edit(ui, "weather", "e.g. Ahmedabad", Hub.Settings.WeatherCity));
+            return;
+        }
+        Icons.Weather(ui.Canvas, t.Right - 28, t.Top + 28, 30, w.Code, !w.IsDay, text, colourful);
+        ui.Text($"{Math.Round(w.Temperature)}°", t.Left + 14, t.Top + 66, t.Width - 28, 34, Theme.Weight.Bold, text);
+        ui.Text(w.Describe(), t.Left + 14, t.Top + 86, t.Width - 28, 11.5f, Theme.Weight.SemiBold, text);
+        ui.Text($"H {Math.Round(w.High)}°  L {Math.Round(w.Low)}°", t.Left + 14, t.Top + 103, t.Width - 28, 10.5f, Theme.Weight.Regular, dim);
+        ui.Text(w.Place, t.Left + 14, t.Bottom - 12, t.Width - 28, 10.5f, Theme.Weight.Regular, dim);
+        ui.Hit(t, () => Edit(ui, "weather", "City", Hub.Settings.WeatherCity));
+    }
+
+    private void DrawStats(Ui ui, SKRect t)
+    {
+        Hub.Stats.Touch();
+        var s = Hub.Stats.Snapshot;
+        var y = t.Top + 22;
+        foreach (var (label, value, detail) in new[]
+                 {
+                     ("CPU", s.Cpu, $"{s.Cpu:P0}"),
+                     ("GPU", s.Gpu, $"{s.Gpu:P0}"),
+                     ("RAM", s.Ram, $"{s.RamUsedGb:0.0}/{s.RamTotalGb:0} GB"),
+                 })
+        {
+            ui.Text(label, t.Left + 12, y, 40, 10.5f, Theme.Weight.SemiBold, Theme.Dim);
+            ui.Text(detail, t.Right - 12, y, t.Width - 50, 10.5f, Theme.Weight.SemiBold, Theme.Text, SKTextAlign.Right);
+            var color = value > 0.85f ? new SKColor(0xFF, 0x5A, 0x4F) : Theme.Accent;
+            ui.Bar(new SKRect(t.Left + 12, y + 5, t.Right - 12, y + 9), value, color);
+            y += 27;
+        }
+        Icons.Arrow(ui.Canvas, t.Left + 17, t.Bottom - 16, 11, Theme.Dim, up: false);
+        ui.Text(StatsService.Rate(s.DownBytesPerSec), t.Left + 25, t.Bottom - 12, t.Width / 2 - 20, 10, Theme.Weight.Regular, Theme.Dim);
+        Icons.Arrow(ui.Canvas, t.MidX + 8, t.Bottom - 16, 11, Theme.Dim, up: true);
+        ui.Text(StatsService.Rate(s.UpBytesPerSec), t.MidX + 16, t.Bottom - 12, t.Width / 2 - 20, 10, Theme.Weight.Regular, Theme.Dim);
+    }
+
+    private void DrawTimer(Ui ui, SKRect t)
+    {
+        var timer = Hub.Timer;
+        var cx = t.MidX;
+        var cy = t.Top + 52;
+        var color = timer.Phase == TimerPhase.Break ? new SKColor(0x34, 0xC7, 0x59) : Theme.Accent;
+        ui.Arc(cx, cy, 34, timer.Progress, color, 4);
+        ui.Text(Ui.Clock(timer.Remaining), cx, cy + 6, 64, 17, Theme.Weight.Bold, Theme.Text, SKTextAlign.Center);
+        var label = timer.Phase switch
+        {
+            TimerPhase.Focus => timer.Paused ? "Paused" : "Focus",
+            TimerPhase.Break => timer.Paused ? "Paused" : "Break",
+            _ => "Focus timer",
+        };
+        ui.Text(label, cx, cy - 13, 70, 9.5f, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Center);
+
+        var by = t.Bottom - 22;
+        if (timer.Phase == TimerPhase.Idle)
+        {
+            ui.IconButton(cx - 34, by, 11, (c, x, y, s, col) => ui.Text("−", x, y + 5, 20, 15, Theme.Weight.Bold, col, SKTextAlign.Center), () => timer.Step(-5));
+            ui.IconButton(cx, by, 13, (c, x, y, s, col) => Icons.Play(c, x + 1, y, s * 0.8f, col), timer.Toggle, filled: true);
+            ui.IconButton(cx + 34, by, 11, Icons.Plus, () => timer.Step(5));
+            return;
+        }
+        ui.IconButton(cx - 34, by, 11, Icons.Reset, timer.Reset);
+        ui.IconButton(cx, by, 13, timer.Paused ? (c, x, y, s, col) => Icons.Play(c, x + 1, y, s * 0.8f, col) : Icons.Pause, timer.Toggle, filled: true);
+        ui.IconButton(cx + 34, by, 11, Icons.Next, timer.Skip);
+    }
+
+    private void DrawClock(Ui ui, SKRect t)
+    {
+        var (city, zone) = Cities.FirstOrDefault(c => c.City == Hub.Settings.WorldClockCity);
+        if (city == null) (city, zone) = Cities[0];
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(zone, out var tz)) tz = TimeZoneInfo.Utc;
+        var there = TimeZoneInfo.ConvertTime(DateTime.Now, tz);
+        var diff = tz.GetUtcOffset(DateTime.UtcNow) - TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow);
+        var day = there.Hour is >= 6 and < 18;
+        if (day) Icons.Sun(ui.Canvas, t.Right - 24, t.Top + 24, 18, new SKColor(0xFF, 0xC8, 0x3D));
+        else Icons.Moon(ui.Canvas, t.Right - 24, t.Top + 24, 18, new SKColor(0xC8, 0xD0, 0xF0));
+        ui.Text(city, t.Left + 14, t.Top + 26, t.Width - 50, 12, Theme.Weight.SemiBold, Theme.Accent);
+        ui.Text(there.ToShortTimeString(), t.Left + 14, t.Top + 68, t.Width - 20, 26, Theme.Weight.Bold);
+        var sign = diff < TimeSpan.Zero ? "−" : "+";
+        var offset = diff == TimeSpan.Zero ? "Same time" : $"{sign}{Math.Abs(diff.TotalHours):0.#} h";
+        var dayWord = there.Date == DateTime.Now.Date ? "Today" : there.Date > DateTime.Now.Date ? "Tomorrow" : "Yesterday";
+        ui.Text($"{dayWord}, {offset}", t.Left + 14, t.Top + 88, t.Width - 28, 10.5f, Theme.Weight.Regular, Theme.Dim);
+        ui.Text("Click for next city", t.Left + 14, t.Bottom - 12, t.Width - 28, 9.5f, Theme.Weight.Regular, Theme.Faint);
+        ui.Hit(t, () =>
+        {
+            var i = Array.FindIndex(Cities, c => c.City == city);
+            Hub.Settings.WorldClockCity = Cities[(i + 1) % Cities.Length].City;
+            Hub.Settings.Save();
+        });
+    }
+
+    private void DrawTodo(Ui ui, SKRect t)
+    {
+        ui.Text("To-do", t.Left + 12, t.Top + 22, t.Width - 40, 12, Theme.Weight.SemiBold, Theme.Accent);
+        ui.IconButton(t.Right - 18, t.Top + 18, 10, Icons.Plus, () => Edit(ui, "todo", "Something to do"));
+        var todos = Hub.Reminders.Todos;
+        if (todos.Count == 0)
+        {
+            ui.Text("Nothing to do", t.MidX, t.MidY + 8, t.Width - 16, 11.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            return;
+        }
+        var y = t.Top + 44;
+        foreach (var item in todos.Take(4))
+        {
+            var box = new SKRect(t.Left + 12, y - 9, t.Left + 24, y + 3);
+            if (item.Done)
+            {
+                ui.Fill(box, 3.5f, Theme.Accent);
+                Icons.Check(ui.Canvas, box.MidX, box.MidY, 10, Theme.OnAccent);
+            }
+            else
+            {
+                using var stroke = new SKPaint { Color = Theme.Dim, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.3f };
+                ui.Canvas.DrawRoundRect(box, 3.5f, 3.5f, stroke);
+            }
+            ui.Text(item.Text, t.Left + 30, y, t.Width - 42, 11.5f, Theme.Weight.Regular, item.Done ? Theme.Faint : Theme.Text);
+            var chosen = item;
+            ui.Hit(new SKRect(t.Left + 6, y - 13, t.Right - 6, y + 7), () => Hub.Reminders.ToggleTodo(chosen));
+            y += 22;
+        }
+    }
+
+    private void DrawBattery(Ui ui, SKRect t)
+    {
+        var p = Hub.Power;
+        if (!p.HasBattery)
+        {
+            Icons.Bolt(ui.Canvas, t.MidX, t.Top + 46, 30, Theme.Accent);
+            ui.Text("Plugged in", t.MidX, t.Top + 92, t.Width - 16, 12.5f, Theme.Weight.SemiBold, Theme.Text, SKTextAlign.Center);
+            ui.Text("No battery", t.MidX, t.Top + 110, t.Width - 16, 10.5f, Theme.Weight.Regular, Theme.Dim, SKTextAlign.Center);
+            return;
+        }
+        Icons.Battery(ui.Canvas, t.Left + 30, t.Top + 26, 30, Theme.Text, p.Percent / 100f, p.Charging);
+        ui.Text($"{p.Percent}%", t.Left + 14, t.Top + 76, t.Width - 28, 34, Theme.Weight.Bold);
+        var status = p.Charging ? "Charging" : p.PluggedIn ? "Plugged in" : "On battery";
+        ui.Text(status, t.Left + 14, t.Top + 96, t.Width - 28, 11.5f, Theme.Weight.SemiBold, Theme.Dim);
+        if (p.TimeLeft is { } left && Hub.Settings.ShowBatteryEstimate)
+            ui.Text($"{(int)left.TotalHours}h {left.Minutes}m left", t.Left + 14, t.Bottom - 12, t.Width - 28, 10.5f, Theme.Weight.Regular, Theme.Dim);
+    }
+
+    private void DrawCalendar(Ui ui, SKRect t)
+    {
+        ui.Text("Next up", t.Left + 12, t.Top + 22, t.Width - 24, 12, Theme.Weight.SemiBold, Theme.Accent);
+        if (!Hub.Calendar.Configured)
+        {
+            ui.Text("Add a calendar", t.MidX, t.MidY + 2, t.Width - 16, 12, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Center);
+            ui.Text("Paste its iCal (ICS) link", t.MidX, t.MidY + 20, t.Width - 16, 10.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            ui.Hit(t, () => Edit(ui, "calendar", "https://…/basic.ics"));
+            return;
+        }
+        if (Hub.Calendar.Next is not { } e)
+        {
+            ui.Text(Hub.Calendar.Status.Length > 0 ? Hub.Calendar.Status : "Nothing coming up", t.MidX, t.MidY + 8, t.Width - 16, 11.5f,
+                Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            return;
+        }
+        ui.Wrapped(e.Title, t.Left + 12, t.Top + 30, t.Width - 24, 2, 12.5f);
+        var when = e.Start <= ui.Now ? "Now" : e.Start.Date == ui.Now.Date ? e.Start.ToShortTimeString() : e.Start.ToString("ddd HH:mm");
+        ui.Text($"{when} – {e.End.ToShortTimeString()}", t.Left + 12, t.Top + 82, t.Width - 24, 11, Theme.Weight.Regular, Theme.Dim);
+        var minutes = (e.Start - ui.Now).TotalMinutes;
+        if (minutes > 0 && minutes < 120)
+            ui.Text($"in {Math.Ceiling(minutes)} min", t.Left + 12, t.Top + 98, t.Width - 24, 11, Theme.Weight.SemiBold, Theme.Accent);
+        if (e.JoinUrl is { } url) ui.Chip(t.Left + 10, t.Bottom - 18, "Join", () => Hub.Open(url), accent: true, size: 11.5f);
+    }
+
+    private void DrawTicker(Ui ui, SKRect t)
+    {
+        Hub.Ticker.Touch();
+        Icons.Chart(ui.Canvas, t.Left + 20, t.Top + 18, 15, Theme.Accent);
+        ui.Text("Markets", t.Left + 34, t.Top + 23, t.Width - 46, 12, Theme.Weight.SemiBold, Theme.Accent);
+        ui.Hit(t, () => Edit(ui, "ticker", "BTC, ETH, AAPL, ^NSEI", Hub.Settings.TickerSymbols));
+        var quotes = Hub.Ticker.Quotes;
+        if (quotes.Count == 0)
+        {
+            ui.Text(Hub.Ticker.Status.Length > 0 ? Hub.Ticker.Status : "Loading…", t.MidX, t.MidY + 8, t.Width - 16, 11.5f,
+                Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            return;
+        }
+        var y = t.Top + 46;
+        foreach (var q in quotes.Take(4))
+        {
+            ui.Text(q.Symbol.TrimStart('^'), t.Left + 12, y, 54, 11.5f, Theme.Weight.SemiBold);
+            var price = q.Price >= 1000 ? q.Price.ToString("#,0") : q.Price >= 1 ? q.Price.ToString("#,0.00") : q.Price.ToString("0.0000");
+            ui.Text(price, t.Right - 12, y, t.Width - 70, 11.5f, Theme.Weight.Regular, Theme.Text, SKTextAlign.Right);
+            var up = q.ChangePercent >= 0;
+            ui.Text($"{(up ? "▲" : "▼")} {Math.Abs(q.ChangePercent):0.00}%", t.Right - 12, y + 13, t.Width - 24, 9.5f, Theme.Weight.SemiBold,
+                up ? new SKColor(0x34, 0xC7, 0x59) : new SKColor(0xFF, 0x5A, 0x4F), SKTextAlign.Right);
+            y += 24;
+        }
+    }
+
+    // Photos tile: a slow slideshow from a folder.
+    private string[]? _photos;
+    private int _photoIndex = -1;
+    private SKImage? _photo;
+    private DateTime _photoAt;
+    private volatile bool _photoLoading;
+
+    private void DrawPhotos(Ui ui, SKRect t)
+    {
+        var folder = Hub.Settings.PhotosFolder;
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+        {
+            Icons.Folder(ui.Canvas, t.MidX, t.Top + 48, 30, Theme.Faint);
+            ui.Text("Pick a photos folder", t.MidX, t.Top + 92, t.Width - 16, 12, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Center);
+            ui.Text("Click and paste its path", t.MidX, t.Top + 110, t.Width - 16, 10.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            ui.Hit(t, () => Edit(ui, "photos", Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), folder));
+            return;
+        }
+        _photos ??= Directory.EnumerateFiles(folder)
+            .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                        || f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(_ => Random.Shared.Next()).Take(200).ToArray();
+        if (_photos.Length > 0 && !_photoLoading && (_photo == null || DateTime.Now - _photoAt > TimeSpan.FromSeconds(12)))
+        {
+            _photoLoading = true;
+            _photoIndex = (_photoIndex + 1) % _photos.Length;
+            var file = _photos[_photoIndex];
+            Task.Run(() =>
+            {
+                try { _photo = Rendering.ImageTools.DecodeSmall(File.ReadAllBytes(file), 320) ?? _photo; }
+                catch (IOException) { }
+                _photoAt = DateTime.Now;
+                _photoLoading = false;
+            });
+        }
+        if (_photo != null) ui.Image(_photo, t, 16);
+        else ui.Text(_photos.Length == 0 ? "No photos here" : "Loading…", t.MidX, t.MidY, t.Width, 11.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+        ui.Hit(t, () => _photoAt = default); // click for the next photo
+    }
+
+    // ───────────────────────────── editor ─────────────────────────────
+
+    private void DrawEditor(Ui ui, SKRect body)
+    {
+        ui.Text("Tiles", body.Left + 20, body.Top + 16, 200, 12, Theme.Weight.SemiBold);
+        ui.Text($"Pick up to {MaxTiles}; they show in the order you pick them.", body.Left + 62, body.Top + 16, 400, 11.5f, Theme.Weight.Regular, Theme.Dim);
+        var x = body.Left + 20;
+        var y = body.Top + 42;
+        foreach (var (id, name) in Catalogue)
+        {
+            var index = Tiles.IndexOf(id);
+            var label = index >= 0 ? $"{index + 1}  {name}" : name;
+            var width = ui.Measure(label, 12) + 22;
+            if (x + width > body.Right - 20)
+            {
+                x = body.Left + 20;
+                y += 30;
+            }
+            var chosen = id;
+            x = ui.Chip(x, y, label, () =>
+            {
+                if (Tiles.Remove(chosen)) { }
+                else if (Tiles.Count < MaxTiles) Tiles.Add(chosen);
+                Hub.Settings.Save();
+            }, index >= 0).Right + 6;
+        }
+
+        y += 36;
+        ui.Text("Weather", body.Left + 20, y + 4, 80, 12, Theme.Weight.SemiBold);
+        x = ui.Chip(body.Left + 90, y, Hub.Settings.WeatherFahrenheit ? "°F" : "°C", () =>
+        {
+            Hub.Settings.WeatherFahrenheit = !Hub.Settings.WeatherFahrenheit;
+            Hub.Settings.Save();
+            _ = Hub.Weather.RefreshAsync();
+        }, true).Right + 6;
+        x = ui.Chip(x, y, Hub.Settings.WeatherColourful ? "Colourful" : "Minimal", () =>
+        {
+            Hub.Settings.WeatherColourful = !Hub.Settings.WeatherColourful;
+            Hub.Settings.Save();
+        }, true).Right + 6;
+        x = ui.Chip(x, y, string.IsNullOrEmpty(Hub.Settings.WeatherCity) ? "Set city…" : Hub.Settings.WeatherCity, () =>
+        {
+            _editing = false;
+            if (!Tiles.Contains("weather") && Tiles.Count < MaxTiles) Tiles.Add("weather");
+            Edit(ui, "weather", "City", Hub.Settings.WeatherCity);
+        }).Right + 18;
+        ui.Text("Focus", x, y + 4, 60, 12, Theme.Weight.SemiBold);
+        ui.Chip(x + 46, y, $"{Hub.Settings.FocusMinutes} / {Hub.Settings.BreakMinutes} min", () =>
+        {
+            // Cycle through common Pomodoro lengths.
+            (Hub.Settings.FocusMinutes, Hub.Settings.BreakMinutes) = (Hub.Settings.FocusMinutes, Hub.Settings.BreakMinutes) switch
+            {
+                (25, 5) => (50, 10),
+                (50, 10) => (90, 15),
+                (90, 15) => (15, 3),
+                _ => (25, 5),
+            };
+            Hub.Settings.Save();
+        }, true);
+    }
+}
