@@ -19,6 +19,7 @@ namespace HaloBar.Services;
 internal sealed class NotifyServer : IDisposable
 {
     private const int MaxRequestBytes = 16 * 1024;
+    private const int MaxBodyBytes = 4 * 1024 * 1024;
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
 
@@ -26,6 +27,14 @@ internal sealed class NotifyServer : IDisposable
     public event Action<Notice>? Received;
     /// <summary>Surface id, accent id or "#RRGGBB", and album-card switch; null leaves that part as it is.</summary>
     public event Action<string?, string?, bool?>? StyleRequested;
+    /// <summary>Open the island on a panel by name ("home", "music"…), or "none" to close it.</summary>
+    public event Action<string>? PanelRequested;
+    /// <summary>The JSON a Claude Code hook received.</summary>
+    public event Action<string>? ClaudeEvent;
+    /// <summary>(name, state, text, project) from any other agent or script.</summary>
+    public event Action<string, string?, string?, string?>? AgentEvent;
+    /// <summary>(PNG path, panel to open first or null).</summary>
+    public event Action<string, string?>? SnapshotRequested;
 
     public NotifyServer(int port)
     {
@@ -79,6 +88,46 @@ internal sealed class NotifyServer : IDisposable
                     return;
                 }
                 StyleRequested?.Invoke(q["surface"], q["accent"], album);
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
+            if (path == "/snapshot")
+            {
+                // Saves the next frames of the primary island to a PNG: for docs and checking
+                // the look without screen capture (which can't see it when it's excluded).
+                var q = HttpUtility.ParseQueryString(uri.Query);
+                var file = Path.Combine(AppPaths.Folder, "snapshot.png");
+                SnapshotRequested?.Invoke(file, q["panel"]);
+                await ReplyAsync(stream, 200, file);
+                return;
+            }
+            if (path == "/agent/claude" && method == "POST")
+            {
+                ClaudeEvent?.Invoke(body);
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
+            if (path == "/agent")
+            {
+                var q = HttpUtility.ParseQueryString(uri.Query);
+                if (string.IsNullOrWhiteSpace(q["name"]))
+                {
+                    await ReplyAsync(stream, 400, "use /agent?name=..&state=working|waiting|done|error&text=..&project=..");
+                    return;
+                }
+                AgentEvent?.Invoke(Cut(q["name"], 40)!, q["state"], Cut(q["text"], 120), Cut(q["project"], 60));
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
+            if (path == "/panel")
+            {
+                var name = HttpUtility.ParseQueryString(uri.Query)["name"];
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    await ReplyAsync(stream, 400, "use /panel?name=home|music|clipboard|notifications|reminders|controls|style|settings|none");
+                    return;
+                }
+                PanelRequested?.Invoke(name);
                 await ReplyAsync(stream, 200, "ok");
                 return;
             }
@@ -146,7 +195,9 @@ internal sealed class NotifyServer : IDisposable
                 contentLength = int.Parse(line[(colon + 1)..].Trim());
         }
         var bodyStart = headerEnd + 4;
-        if (bodyStart + contentLength > buffer.Length) throw new FormatException("body too large");
+        // Agent hook events can carry a whole file being written; allow bodies up to 4 MB.
+        if (contentLength > MaxBodyBytes) throw new FormatException("body too large");
+        if (bodyStart + contentLength > buffer.Length) Array.Resize(ref buffer, bodyStart + contentLength);
         while (length < bodyStart + contentLength)
         {
             var n = await stream.ReadAsync(buffer.AsMemory(length), ct);

@@ -5,8 +5,8 @@ using Windows.UI.Notifications.Management;
 
 namespace HaloBar.Services;
 
-/// <summary>One notification shown on the island.</summary>
-internal sealed record Notice(string App, string Title, string Body, SKImage? Icon, DateTime Time);
+/// <summary>One notification shown on the island. <paramref name="AppId"/> opens the app that sent it.</summary>
+internal sealed record Notice(string App, string Title, string Body, SKImage? Icon, DateTime Time, string? AppId = null);
 
 /// <summary>Recent notices, shared by the islands on every monitor. Window thread only.</summary>
 internal sealed class NoticeHistory
@@ -101,7 +101,7 @@ internal sealed class NotificationService : IDisposable
         var texts = binding?.GetTextElements().Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t)).ToList() ?? [];
         if (texts.Count == 0) return null;
         var app = n.AppInfo?.DisplayInfo?.DisplayName ?? "Notification";
-        return new Notice(app, texts[0], string.Join(" · ", texts.Skip(1)), await IconAsync(n), DateTime.Now);
+        return new Notice(app, texts[0], string.Join(" · ", texts.Skip(1)), await IconAsync(n), DateTime.Now, n.AppInfo?.AppUserModelId);
     }
 
     private async Task<SKImage?> IconAsync(UserNotification n)

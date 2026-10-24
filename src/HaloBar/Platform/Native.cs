@@ -174,6 +174,33 @@ internal static class Native
     [DllImport("gdi32.dll")] public static extern IntPtr CreateBitmap(int width, int height, uint planes, uint bitCount, IntPtr bits);
     [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
 
+    public const uint WM_KILLFOCUS = 0x8, WM_KEYDOWN = 0x100, WM_CHAR = 0x102;
+    public const int MA_ACTIVATE = 1;
+    [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern short GetKeyState(int vk);
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode)] public static extern bool PlaySound(string? sound, IntPtr module, uint flags);
+    public const uint SND_ALIAS = 0x10000, SND_ASYNC = 0x1, SND_NODEFAULT = 0x2;
+
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern uint GetPixel(IntPtr hdc, int x, int y);
+    [DllImport("ole32.dll")] public static extern int OleInitialize(IntPtr reserved);
+    [DllImport("ole32.dll")] public static extern int RegisterDragDrop(IntPtr hwnd, [MarshalAs(UnmanagedType.Interface)] object target);
+    [DllImport("ole32.dll")] public static extern int RevokeDragDrop(IntPtr hwnd);
+    [DllImport("ole32.dll")] public static extern void ReleaseStgMedium(ref System.Runtime.InteropServices.ComTypes.STGMEDIUM medium);
+    [DllImport("shell32.dll")] public static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid id, uint flags, IntPtr token, out IntPtr path);
+
+    /// <summary>A known folder (Downloads, Pictures…) by its FOLDERID.</summary>
+    public static string? KnownFolder(Guid id)
+    {
+        if (SHGetKnownFolderPath(id, 0, IntPtr.Zero, out var p) != 0) return null;
+        try { return Marshal.PtrToStringUni(p); }
+        finally { Marshal.FreeCoTaskMem(p); }
+    }
+
+    public static readonly Guid FolderDownloads = new("374DE290-123F-4565-9164-39C4925E467B");
+    public static readonly Guid FolderPictures = new("33E28130-4E1E-4676-835A-98395C3BC3BB");
+
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string? className, string? title);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hwnd, char[] text, int max);
