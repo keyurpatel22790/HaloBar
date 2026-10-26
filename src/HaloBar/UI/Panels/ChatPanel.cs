@@ -21,7 +21,7 @@ internal sealed class ChatPanel : Panel
     public override double FrameInterval => 0.25;
 
     public override IEnumerable<(string Label, Action Click)> Actions =>
-        _chat.Channel.Length == 0 ? [] : [("Change channel", () => { _channel.Text = _chat.Channel; _chat.Join(""); })];
+        _chat.Channel.Length == 0 ? [] : [("Channel", () => { _channel.Text = _chat.Channel; _chat.Join(""); })];
 
     public override void Draw(Ui ui, SKRect body)
     {

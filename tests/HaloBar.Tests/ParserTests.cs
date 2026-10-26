@@ -186,6 +186,175 @@ public class AgentTests
     }
 }
 
+public class StatsTests
+{
+    [Theory]
+    [InlineData(0, "0B/s")]
+    [InlineData(512, "512B/s")]
+    [InlineData(2_000, "2KB/s")]
+    [InlineData(999_000, "999KB/s")]
+    [InlineData(4_900_000, "4.9MB/s")]
+    [InlineData(49_100_000, "49MB/s")]
+    [InlineData(1_250_000_000, "1.3GB/s")]
+    public void Network_speeds_stay_short(double bytesPerSec, string expected) =>
+        Assert.Equal(expected, StatsService.Rate(bytesPerSec));
+}
+
+public class TextTests
+{
+    [Fact]
+    public void Invisible_marks_are_dropped_but_emoji_joiners_stay()
+    {
+        // Phone Link wraps names in first-strong-isolate / pop-directional-isolate.
+        Assert.Equal("WhatsApp", Theme.Visible("⁨WhatsApp⁩"));
+        Assert.Equal("ab", Theme.Visible("a​b‎﻿"));
+        Assert.Equal("👨‍👩", Theme.Visible("👨‍👩"));
+        Assert.Same("plain", Theme.Visible("plain"));
+    }
+
+    [Fact]
+    public void Splits_lines_into_direction_runs()
+    {
+        var runs = Theme.DirectionRuns("Hello مرحبا world 42");
+        Assert.Equal([("Hello ", false), ("مرحبا ", true), ("world 42", false)], runs);
+        Assert.Single(Theme.DirectionRuns("સ્ટેશન ક્યાં છે?"));
+        Assert.True(Theme.NeedsShaping("नमस्ते"));
+        Assert.False(Theme.NeedsShaping("Hello, Привет"));
+    }
+}
+
+public class CalculatorTests
+{
+    [Theory]
+    [InlineData("2+3*4", "14")]
+    [InlineData("(2+3)*4", "20")]
+    [InlineData("2^3^2", "512")]
+    [InlineData("-2^2", "-4")]
+    [InlineData("2^-1", "0.5")]
+    [InlineData("18% of 2500", "450")]
+    [InlineData("2500 + 18%", "2,950")]
+    [InlineData("2500 - 10%", "2,250")]
+    [InlineData("50%", "0.5")]
+    [InlineData("1,000 × 3 ÷ 4", "750")]
+    [InlineData("sqrt(16) + 2pi", "10.28318531")]
+    [InlineData("sin 30", "0.5")]
+    [InlineData("5!", "120")]
+    [InlineData("0.1+0.2", "0.3")]
+    [InlineData("10/3", "3.333333333")]
+    public void Works_out_sums(string sum, string expected)
+    {
+        Assert.True(Calculator.TryEvaluate(sum, out var value));
+        Assert.Equal(expected, Calculator.Format(value));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("2+")]
+    [InlineData("(2")]
+    [InlineData("hello")]
+    [InlineData("1/0")]
+    public void Rejects_what_isnt_a_sum(string text) => Assert.False(Calculator.TryEvaluate(text, out _));
+}
+
+public class ConverterTests
+{
+    [Theory]
+    [InlineData("5 km to mi", "3.10686 mi")]
+    [InlineData("100 f to c", "37.7778 °C")]
+    [InlineData("0 c in f", "32 °F")]
+    [InlineData("70 kg lb", "154.324 lb")]
+    [InlineData("2 GB to MB", "2,048 MB")]
+    [InlineData("6 ft to cm", "182.88 cm")]
+    [InlineData("90 min to h", "1.5 h")]
+    [InlineData("100 km/h to mph", "62.1371 mph")]
+    public void Converts_units(string text, string expected) => Assert.Equal(expected, UnitConverter.Convert(text));
+
+    [Theory]
+    [InlineData("5 km to kg")]
+    [InlineData("hello")]
+    [InlineData("5 usd to inr")]
+    public void Leaves_other_text_alone(string text) => Assert.Null(UnitConverter.Convert(text));
+}
+
+public class HomeTileTests
+{
+    private static readonly DateTime Today = new(2026, 10, 26);
+
+    [Theory]
+    [InlineData("Trip to Goa 20 Dec", "Trip to Goa", 2026, 12, 20)]
+    [InlineData("Diwali 8 Nov 2026", "Diwali", 2026, 11, 8)]
+    [InlineData("Birthday 14/02", "Birthday", 2027, 2, 14)] // already passed this year
+    [InlineData("Launch 2027-03-01", "Launch", 2027, 3, 1)]
+    [InlineData("1 Jan", "", 2027, 1, 1)]
+    public void Countdown_reads_a_title_and_date(string text, string title, int y, int m, int d)
+    {
+        var parsed = UI.Tiles.CountdownTile.Parse(text, Today);
+        Assert.NotNull(parsed);
+        Assert.Equal(title, parsed.Value.Title);
+        Assert.Equal(new DateTime(y, m, d), parsed.Value.Date);
+    }
+
+    [Fact]
+    public void Moon_phase_matches_known_dates()
+    {
+        // Full moon 2026-10-26 04:12 UTC; new moon 2026-11-09 07:02 UTC.
+        Assert.Equal("Full moon", UI.Tiles.Moon.Name(UI.Tiles.Moon.Phase(new DateTime(2026, 10, 26, 4, 12, 0, DateTimeKind.Utc))));
+        Assert.Equal("New moon", UI.Tiles.Moon.Name(UI.Tiles.Moon.Phase(new DateTime(2026, 11, 9, 7, 2, 0, DateTimeKind.Utc))));
+    }
+
+    [Theory]
+    [InlineData("સ્ટેશન ક્યાં છે?", "gu")]
+    [InlineData("स्टेशन कहाँ है?", "hi")]
+    [InlineData("Привет", "ru")]
+    [InlineData("Hello", null)]
+    public void Guesses_language_from_script(string text, string? code) => Assert.Equal(code, WebTools.DetectScript(text));
+}
+
+public class BannerTests
+{
+    [Fact]
+    public void Turns_banners_off_and_puts_back_only_what_it_changed()
+    {
+        var root = $@"Software\HaloBarTests\{Guid.NewGuid():N}";
+        try
+        {
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{root}\Mine")) k.SetValue("ShowBanner", 0); // the user's own choice
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{root}\WasOn")) k.SetValue("ShowBanner", 1);
+            var settings = new HaloBar.AppSettings { QuietWindowsBanners = true };
+            var banners = new BannerService(settings, root, save: () => { }); // never touch the real settings.json
+
+            Assert.True(banners.Quiet("Fresh"));          // no key at all yet
+            Assert.True(banners.Quiet("WasOn"));
+            Assert.False(banners.Quiet("Mine"));          // already off: not ours to undo
+            Assert.False(banners.Quiet("Windows.SystemToast.BatterySaver"));
+            Assert.False(banners.Quiet("Fresh"));         // second time: nothing to do
+            Assert.Equal(new Dictionary<string, int> { ["Fresh"] = -1, ["WasOn"] = 1 }, settings.QuietedBanners);
+            Assert.Equal(0, Read(root, "Fresh"));
+
+            Assert.Equal(2, banners.RestoreAll());
+            Assert.Null(Read(root, "Fresh"));
+            Assert.Equal(1, Read(root, "WasOn"));
+            Assert.Equal(0, Read(root, "Mine"));
+            Assert.Empty(settings.QuietedBanners);
+
+            Assert.True(banners.Quiet(@"{6D809377-6AF0-444B-8957-A3773F02200E}\Tool\tool.exe"));
+            Assert.Equal(0, Read(root, @"{6D809377-6AF0-444B-8957-A3773F02200E}\Tool\tool.exe")); // nested keys, as Windows keeps them
+            settings.QuietWindowsBanners = false;
+            Assert.False(banners.Quiet("Other"));
+        }
+        finally
+        {
+            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(root, throwOnMissingSubKey: false);
+        }
+    }
+
+    private static object? Read(string root, string app)
+    {
+        using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey($@"{root}\{app}");
+        return k?.GetValue("ShowBanner");
+    }
+}
+
 public class SpringTests
 {
     [Fact]

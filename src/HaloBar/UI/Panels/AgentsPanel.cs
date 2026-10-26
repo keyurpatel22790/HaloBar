@@ -17,8 +17,8 @@ internal sealed class AgentsPanel(Hub hub, AgentService agents) : Panel(hub)
 
     public override IEnumerable<(string Label, Action Click)> Actions =>
         !agents.ClaudeInstalled ? []
-        : agents.ClaudeConnected ? [("Disconnect Claude Code", () => _message = agents.DisconnectClaude())]
-        : [("Connect Claude Code", () => _message = agents.ConnectClaude())];
+        : agents.ClaudeConnected ? [("Disconnect", () => _message = agents.DisconnectClaude())]
+        : [("Connect", () => _message = agents.ConnectClaude())];
 
     public override void Draw(Ui ui, SKRect body)
     {

@@ -60,8 +60,10 @@ internal sealed class StatsService : IDisposable
 
         var mem = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
         GlobalMemoryStatusEx(ref mem);
-        var total = mem.ullTotalPhys / 1e9;
-        var used = (mem.ullTotalPhys - mem.ullAvailPhys) / 1e9;
+        // Memory is sold and shown in binary gigabytes (1024³ bytes), as Task Manager does.
+        const double GiB = 1024.0 * 1024 * 1024;
+        var total = mem.ullTotalPhys / GiB;
+        var used = (mem.ullTotalPhys - mem.ullAvailPhys) / GiB;
 
         long rx = 0, tx = 0;
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -125,11 +127,17 @@ internal sealed class StatsService : IDisposable
         }
     }
 
+    /// <summary>
+    /// A network speed short enough for half a stats tile: at most three digits and no space,
+    /// so "49MB/s" and "4.9MB/s" rather than "49.1 MB/s".
+    /// </summary>
     public static string Rate(double bytesPerSec) => bytesPerSec switch
     {
-        >= 1e6 => $"{bytesPerSec / 1e6:0.0} MB/s",
-        >= 1e3 => $"{bytesPerSec / 1e3:0} KB/s",
-        _ => $"{bytesPerSec:0} B/s",
+        >= 1e9 => $"{bytesPerSec / 1e9:0.0}GB/s",
+        >= 1e7 => $"{bytesPerSec / 1e6:0}MB/s",
+        >= 1e6 => $"{bytesPerSec / 1e6:0.0}MB/s",
+        >= 1e3 => $"{bytesPerSec / 1e3:0}KB/s",
+        _ => $"{bytesPerSec:0}B/s",
     };
 
     public void Dispose()

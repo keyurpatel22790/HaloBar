@@ -1,5 +1,6 @@
 using HaloBar.Rendering;
 using SkiaSharp;
+using SkiaSharp.HarfBuzz;
 
 namespace HaloBar.UI;
 
@@ -184,7 +185,7 @@ internal sealed class Theme : IDisposable
         {
             int cp = char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text, i) : text[i];
             if (char.IsSurrogatePair(text, i)) i++;
-            if (cp < 0x2000) continue; // Latin, Greek, Cyrillic: Segoe has them
+            if (cp < 0x0250) continue; // Latin: Segoe has it; everything else is checked (Indic is below U+2000 too)
             if (!font.ContainsGlyph(cp)) return cp;
         }
         return -1;
@@ -195,10 +196,71 @@ internal sealed class Theme : IDisposable
         SKTextAlign align = SKTextAlign.Left)
     {
         if (string.IsNullOrEmpty(text) || maxWidth <= 4) return;
-        text = text.ReplaceLineEndings(" ");
+        text = Visible(text).ReplaceLineEndings(" ");
         var fitted = Fit(text, maxWidth, font);
         using var paint = new SKPaint { Color = color, IsAntialias = true };
-        canvas.DrawText(fitted, x, baseline, align, font, paint);
+        if (NeedsShaping(fitted))
+        {
+            // Indic, Arabic and Thai letters change shape and order by context; HarfBuzz does that.
+            if (!_shapers.TryGetValue(font.Typeface, out var shaper))
+                _shapers[font.Typeface] = shaper = new SKShaper(font.Typeface);
+            var runs = DirectionRuns(fitted);
+            if (runs.Count == 1)
+            {
+                canvas.DrawShapedText(shaper, fitted, x, baseline, align, font, paint);
+                return;
+            }
+            // Mixed directions: shape each run on its own and lay the runs out in reading order.
+            var widths = runs.Select(r => shaper.Shape(r.Text, font).Width).ToList();
+            var total = widths.Sum();
+            var left = align switch { SKTextAlign.Center => x - total / 2, SKTextAlign.Right => x - total, _ => x };
+            var order = Enumerable.Range(0, runs.Count);
+            if (runs[0].Rtl) order = order.Reverse();
+            foreach (var i in order)
+            {
+                canvas.DrawShapedText(shaper, runs[i].Text, left, baseline, SKTextAlign.Left, font, paint);
+                left += widths[i];
+            }
+        }
+        else canvas.DrawText(fitted, x, baseline, align, font, paint);
+    }
+
+    private static bool IsRtl(char ch) => ch is >= '֐' and <= 'ࣿ' or >= 'יִ' and <= '﷿' or >= 'ﹰ' and <= '﻿';
+
+    /// <summary>
+    /// Splits a line into right-to-left (Hebrew, Arabic) and left-to-right runs. Spaces and
+    /// punctuation stay with the run before them; a line that opens with them joins the first run.
+    /// </summary>
+    public static List<(string Text, bool Rtl)> DirectionRuns(string text)
+    {
+        var runs = new List<(string Text, bool Rtl)>();
+        var start = 0;
+        bool? rtl = null;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (!char.IsLetterOrDigit(ch)) continue; // neutral
+            var here = IsRtl(ch);
+            if (rtl == null) rtl = here;
+            else if (here != rtl)
+            {
+                runs.Add((text[start..i], rtl.Value));
+                start = i;
+                rtl = here;
+            }
+        }
+        runs.Add((text[start..], rtl ?? false));
+        return runs;
+    }
+
+    private readonly Dictionary<SKTypeface, SKShaper> _shapers = [];
+
+    /// <summary>True for scripts whose glyphs need shaping: Hebrew to Sinhala, Thai, Lao, Myanmar.</summary>
+    public static bool NeedsShaping(string text)
+    {
+        foreach (var ch in text)
+            if (ch is >= '֐' and <= '෿' or >= '฀' and <= '໿' or >= 'က' and <= '႟') return true;
+        return false;
     }
 
     /// <summary>Wraps text into at most <paramref name="maxLines"/> lines, the last one ellipsised.</summary>
@@ -206,7 +268,7 @@ internal sealed class Theme : IDisposable
     {
         var lineHeight = font.Size * 1.3f;
         var lines = new List<string>();
-        foreach (var para in text.Replace("\r", "").Split('\n'))
+        foreach (var para in Visible(text).Replace("\r", "").Split('\n'))
         {
             var words = para.Split(' ');
             var line = "";
@@ -230,8 +292,28 @@ internal sealed class Theme : IDisposable
             DrawLine(canvas, shown[i], x, top + font.Size + i * lineHeight, maxWidth, font, color);
     }
 
+    /// <summary>
+    /// Drops invisible formatting characters: direction marks and isolates (Phone Link wraps
+    /// names in U+2068…U+2069), zero-width spaces and byte-order marks. Fonts have no glyph for
+    /// them, so they would otherwise draw as a thin bar. The zero-width joiner stays, because
+    /// emoji sequences need it.
+    /// </summary>
+    public static string Visible(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var keep = true;
+        foreach (var ch in text)
+            if (ch != '‍' && char.GetUnicodeCategory(ch) == System.Globalization.UnicodeCategory.Format) { keep = false; break; }
+        if (keep) return text;
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (var ch in text)
+            if (ch == '‍' || char.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.Format) sb.Append(ch);
+        return sb.ToString();
+    }
+
     public static string Fit(string text, float maxWidth, SKFont font)
     {
+        text = Visible(text);
         if (font.MeasureText(text) <= maxWidth) return text;
         int lo = 0, hi = text.Length;
         while (lo < hi)
@@ -248,5 +330,6 @@ internal sealed class Theme : IDisposable
         _regular.Dispose();
         _semibold.Dispose();
         _bold.Dispose();
+        foreach (var shaper in _shapers.Values) shaper.Dispose();
     }
 }

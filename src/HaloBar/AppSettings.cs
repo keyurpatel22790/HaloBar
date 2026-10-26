@@ -18,6 +18,10 @@ internal sealed class AppSettings
     public bool ClipboardEnabled { get; set; } = true;
     public int ClipboardHistorySize { get; set; } = 16;
     public bool MirrorNotifications { get; set; } = true;
+    /// <summary>Turn off Windows' own banner for apps whose notifications the island shows.</summary>
+    public bool QuietWindowsBanners { get; set; }
+    /// <summary>Banner switches HaloBar turned off: app id → the ShowBanner value before (-1 = none).</summary>
+    public Dictionary<string, int> QuietedBanners { get; set; } = [];
     public int NotificationSeconds { get; set; } = 5;
     /// <summary>Port for the local API (127.0.0.1 only).</summary>
     public int NotifyPort { get; set; } = 47900;
@@ -48,8 +52,10 @@ internal sealed class AppSettings
     public string ProgressBar { get; set; } = "wave";
 
     // Home widgets.
-    /// <summary>Up to four tiles on the Home panel, in order.</summary>
+    /// <summary>Tiles on the Home panel, in order; four slots to a page.</summary>
     public List<string> HomeTiles { get; set; } = ["date", "weather", "stats", "timer"];
+    /// <summary>Tiles that take two slots.</summary>
+    public List<string> HomeWide { get; set; } = [];
     public string WeatherCity { get; set; } = "";
     public double? WeatherLatitude { get; set; }
     public double? WeatherLongitude { get; set; }
@@ -66,6 +72,23 @@ internal sealed class AppSettings
     public List<Services.TodoItem> Todos { get; set; } = [];
     public string TickerSymbols { get; set; } = "BTC, ETH, ^NSEI";
     public string PhotosFolder { get; set; } = "";
+    public string NoteText { get; set; } = "";
+    public string CountdownTitle { get; set; } = "";
+    public DateTime? CountdownDate { get; set; }
+    public string CounterName { get; set; } = "Count";
+    public int CounterValue { get; set; }
+    public string TranslateFrom { get; set; } = "auto";
+    public string TranslateTo { get; set; } = "gu";
+    public string CurrencyBase { get; set; } = "USD";
+    public string CurrencyTargets { get; set; } = "INR, EUR, GBP";
+    public List<string> GitFolders { get; set; } = [];
+    /// <summary>A nudge on the pill after this long at the screen without a five-minute break.</summary>
+    public bool BreakReminder { get; set; } = true;
+    public int BreakEveryMinutes { get; set; } = 50;
+    // Today's screen time, kept here so a restart doesn't lose it.
+    public string ScreenTimeDay { get; set; } = "";
+    public int ScreenTimeSeconds { get; set; }
+    public Dictionary<string, int> ScreenTimeApps { get; set; } = [];
 
     // Shelf and activities.
     public List<Services.SavedShelfFile> ShelfFiles { get; set; } = [];

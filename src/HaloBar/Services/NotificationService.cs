@@ -98,7 +98,7 @@ internal sealed class NotificationService : IDisposable
     private async Task<Notice?> ToNoticeAsync(UserNotification n)
     {
         var binding = n.Notification?.Visual?.GetBinding(KnownNotificationBindings.ToastGeneric);
-        var texts = binding?.GetTextElements().Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t)).ToList() ?? [];
+        var texts = binding?.GetTextElements().Select(t => UI.Theme.Visible(t.Text).Trim()).Where(t => !string.IsNullOrWhiteSpace(t)).ToList() ?? [];
         if (texts.Count == 0) return null;
         var app = n.AppInfo?.DisplayInfo?.DisplayName ?? "Notification";
         return new Notice(app, texts[0], string.Join(" · ", texts.Skip(1)), await IconAsync(n), DateTime.Now, n.AppInfo?.AppUserModelId);

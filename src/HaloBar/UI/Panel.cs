@@ -28,6 +28,9 @@ internal abstract class Panel(Hub hub)
 
     public virtual void Opened() { }
 
+    /// <summary>Moves to a place inside the panel named in a link ("home:2" → "2").</summary>
+    public virtual void GoTo(string place) { }
+
     /// <summary>Advances the panel's own animations (scrolling) by <paramref name="dt"/> seconds.</summary>
     public virtual void Update(double dt) { }
 

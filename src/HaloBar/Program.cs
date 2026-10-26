@@ -246,6 +246,8 @@ internal sealed class IslandApp : IDisposable
             Camera = new CameraService(),
             Downloads = new DownloadService(),
             Ticker = new TickerService(settings),
+            ScreenTime = new ScreenTimeService(settings),
+            Banners = new BannerService(settings),
             ApiPort = settings.NotifyPort,
             ShowHud = hud => Post(() => ShowHud(hud)),
             Open = Open,
@@ -489,6 +491,8 @@ internal sealed class IslandApp : IDisposable
         h.Stats.Start();
         h.Calendar.Changed += Invalidate;
         h.Calendar.Start();
+        h.ScreenTime.BreakDue += () => ShowHud(new Hud(HudIcon.Timer, "Time for a break",
+            Detail: $"{(int)h.ScreenTime.Session.TotalMinutes} min on screen"), TimeSpan.FromSeconds(4));
         _controls.Changed += Invalidate;
         _ = Task.Run(_controls.StartAsync);
 
@@ -521,7 +525,11 @@ internal sealed class IslandApp : IDisposable
 
         if (_settings.MirrorNotifications)
         {
-            h.Notifications.Arrived += n => Post(() => ShowNotice(n));
+            h.Notifications.Arrived += n => Post(() =>
+            {
+                ShowNotice(n);
+                _hub.Banners.Quiet(n.AppId);
+            });
             _ = Task.Run(async () =>
             {
                 await h.Notifications.StartAsync();
@@ -840,6 +848,7 @@ internal sealed class IslandApp : IDisposable
             {
                 _hub.Timer.Tick();
                 _hub.Reminders.Tick();
+                _hub.ScreenTime.Tick(_frontApp);
                 nextSecond = now + 1;
             }
 

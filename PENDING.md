@@ -1,9 +1,7 @@
-# Pending work (paused 2026-10-24)
+# Pending work (updated 2026-10-26)
 
-Nothing below is committed. The last commit is `9248215` (v0.3); everything since (v0.4) is
-uncommitted on purpose: commit only after these are built and you've checked them.
-Pushing: `github.com/kp22790` doesn't exist; the saved GitHub login is `keyurpatel22790`.
-Confirm which account and repo before pushing.
+Items marked done below (7, 8, 9) are committed on `main`. The repo is
+`github.com/keyurpatel22790/HaloBar` (private); push only when asked.
 
 ## To build, in this order
 
@@ -43,7 +41,31 @@ Confirm which account and repo before pushing.
    - Wrap every visible string in a lookup keyed by the English text.
    - Add 20 translation files (ar, cs, de, es, fr, hi, id, it, ja, ko, nl, pl, pt-BR, ru, th, tr, uk, vi, zh-Hans, zh-Hant).
    - Add a "Language" setting, defaulting to the Windows language.
-   - Shape Arabic, Hindi and Thai text with SkiaSharp.HarfBuzz.
+   - Text shaping for Arabic, Hindi, Gujarati and Thai is already in (SkiaSharp.HarfBuzz, 2026-10-26).
+
+7. **Windows banner control** *(done 2026-10-26)*
+   - Settings › Island › "Turn off Windows banners" (off by default). While it's on, each app whose notification HaloBar shows gets `ShowBanner=0` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\<app id>`; switching it on also covers apps already in the island's notification list.
+   - HaloBar remembers what each value was before; switching it off puts those back and leaves apps you changed yourself alone.
+   - Windows' own alerts (`Windows.SystemToast.*`: low battery, USB…) keep their banners. Desktop apps whose id is a path (PowerShell's, for one) are nested keys, as Windows keeps them; checked by Windows writing its own counters there.
+   - Checked live: Windows obeys the change straight away, no sign-out. The first notification from an app HaloBar hasn't seen yet still shows one banner.
+
+8. **Icon-only tab bar** *(done 2026-10-26: a soft rounded square slides to the open tab, no ring; name in a hover tooltip; icons keep fixed spacing on every panel)*
+   - The open island's tabs should show only their icons: no name next to the selected tab, and no panel name in place of the clock.
+   - Mark the selected tab with a highlight around its icon instead.
+   - Hovering a tab can still show its name, as a small tooltip.
+
+9. **Home tab rebuild** *(done 2026-10-26)*
+   - Pages of four slots, with dots and wheel paging; tiles can be wide (two slots). Edit: click a name to add it, again to make it wide or narrow, again to remove it.
+   - 27 tiles: Date, Weather, Air & sun, Stats, Focus timer, World clock, To-do, Battery, Next meeting, Month, Screen time, Storage, Network, This PC, Note, Countdown, Counter, Stopwatch, Calculator, Unit converter, Translator, Dictionary, Currency, Markets, Git, Docker, Photos.
+   - Break reminder: a pill message after 50 minutes at the screen without a 5-minute break (set in Edit).
+   - `/panel?name=home:2` opens page 2; `home:edit` opens the editor.
+   - Fixed in passing: Indian-script text (Hindi, Gujarati…) drew as empty boxes, because the font fallback skipped everything below U+2000.
+   - Not yet checked on the island itself: typing into the translator, calculator and dictionary (the web look-ups and Gujarati drawing were checked separately).
+
+## After everything is built
+
+- **Publishing for others:** make a self-contained installer, so friends don't need .NET installed. It should add a Start-menu shortcut, an Apps entry with an uninstaller, and an optional start-with-Windows choice.
+- Decide on code signing (SmartScreen warns about unsigned apps) and whether the repo goes public or friends get invited.
 
 ## Still to check on real hardware
 
