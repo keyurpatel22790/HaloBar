@@ -81,6 +81,12 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Meeting countdown", "On the pill before a calendar meeting", () => s.MeetingCountdown, v => s.MeetingCountdown = v),
             Toggle("Clipboard history", null, () => s.ClipboardEnabled, v => s.ClipboardEnabled = v),
             Toggle("Mirror Windows notifications", "Takes effect after a restart", () => s.MirrorNotifications, v => s.MirrorNotifications = v),
+            Toggle("Turn off Windows banners", "For apps shown here; they stay in the notification centre", () => s.QuietWindowsBanners, v =>
+            {
+                s.QuietWindowsBanners = v;
+                if (v) Hub.Banners.QuietAll(Hub.Notices.Items.Select(n => n.AppId));
+                else Hub.Banners.RestoreAll();
+            }),
             new("Start with Windows", null, null, () => StartupRegistration.Set(!StartupRegistration.IsEnabled), () => StartupRegistration.IsEnabled),
         ]);
     }

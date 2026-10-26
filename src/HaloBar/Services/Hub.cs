@@ -36,6 +36,8 @@ internal sealed class Hub
     public required PhoneShareService Phone { get; init; }
     public required ChatService Chat { get; init; }
     public required CameraService Camera { get; init; }
+    public required ScreenTimeService ScreenTime { get; init; }
+    public required BannerService Banners { get; init; }
     public required int ApiPort { get; init; }
     /// <summary>The process name of the app in front, kept current by the frame loop.</summary>
     public string FrontApp { get; set; } = "";

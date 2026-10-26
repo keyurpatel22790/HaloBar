@@ -357,6 +357,59 @@ internal static class Icons
         c.DrawLine(cx, cy - 6 * s, cx, cy + 6 * s, p);
     }
 
+    /// <summary>A flag on a pole: a stopwatch lap.</summary>
+    public static void Flag(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        var s = size / 20f;
+        using var p = Stroke(color, 1.6f * s);
+        c.DrawLine(cx - 5 * s, cy - 8 * s, cx - 5 * s, cy + 8 * s, p);
+        using var path = new SKPathBuilder();
+        path.MoveTo(cx - 5 * s, cy - 8 * s);
+        path.LineTo(cx + 6 * s, cy - 5 * s);
+        path.LineTo(cx - 5 * s, cy - 1 * s);
+        path.Close();
+        Fill(c, path, color);
+    }
+
+    /// <summary>Two opposed arrows: swap.</summary>
+    public static void Swap(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        var s = size / 20f;
+        using var p = Stroke(color, 1.6f * s);
+        c.DrawLine(cx - 7 * s, cy - 3 * s, cx + 7 * s, cy - 3 * s, p);
+        c.DrawLine(cx + 7 * s, cy - 3 * s, cx + 4 * s, cy - 6 * s, p);
+        c.DrawLine(cx + 7 * s, cy + 3 * s, cx - 7 * s, cy + 3 * s, p);
+        c.DrawLine(cx - 7 * s, cy + 3 * s, cx - 4 * s, cy + 6 * s, p);
+    }
+
+    /// <summary>Two overlapping sheets: copy.</summary>
+    public static void Copy(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        var s = size / 20f;
+        using var p = Stroke(color, 1.5f * s);
+        c.DrawRoundRect(new SKRect(cx - 3 * s, cy - 3 * s, cx + 7 * s, cy + 7 * s), 2 * s, 2 * s, p);
+        c.DrawLine(cx - 7 * s, cy + 3 * s, cx - 7 * s, cy - 5 * s, p);
+        c.DrawLine(cx - 7 * s, cy - 7 * s, cx + 3 * s, cy - 7 * s, p);
+    }
+
+    /// <summary>A git branch: two dots joined, with a fork.</summary>
+    public static void Branch(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        var s = size / 20f;
+        using var p = Stroke(color, 1.6f * s);
+        c.DrawLine(cx - 4 * s, cy - 5 * s, cx - 4 * s, cy + 5 * s, p);
+        using (var fork = new SKPathBuilder())
+        {
+            fork.MoveTo(cx + 5 * s, cy - 3 * s);
+            fork.QuadTo(cx + 5 * s, cy + 2 * s, cx - 4 * s, cy + 3 * s);
+            using var path = fork.Detach();
+            c.DrawPath(path, p);
+        }
+        c.DrawCircle(cx - 4 * s, cy - 7 * s, 2 * s, p);
+        c.DrawCircle(cx - 4 * s, cy + 7 * s, 2 * s, p);
+        c.DrawCircle(cx + 5 * s, cy - 5 * s, 2 * s, p);
+    }
+
     public static void Close(SKCanvas c, float cx, float cy, float size, SKColor color)
     {
         var s = size / 20f;

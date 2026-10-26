@@ -33,6 +33,8 @@ internal sealed class IslandView
     private Spring _width = new(160), _height = new(34), _radius = new(17);
     private Spring _content = new(1, 520, 1);
     private Spring _visible = new(1, 260, 1);
+    /// <summary>Where the selected tab's highlight is, so it slides between tabs (-1 until first drawn).</summary>
+    private Spring _tabPill = new(-1, 420, 0.82);
 
     private IslandMode _mode = IslandMode.Collapsed;
     private Panel _panel;
@@ -151,10 +153,15 @@ internal sealed class IslandView
             Collapse();
             return true;
         }
+        // "home:2" opens Home at its second page; what follows the colon is the panel's to read.
+        var colon = title.IndexOf(':');
+        var place = colon >= 0 ? title[(colon + 1)..] : null;
+        if (colon >= 0) title = title[..colon];
         var panel = _panels.FirstOrDefault(p => p.Available && p.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
         if (panel == null) return false;
         if (!_expanded) Expand(pinned: true);
         Show(panel);
+        if (place != null) panel.GoTo(place);
         return true;
     }
 
@@ -191,6 +198,7 @@ internal sealed class IslandView
     {
         EndTyping();
         _expanded = false;
+        _tabPill.Snap(-1); // next time it opens, the highlight starts on the open tab rather than sliding in
         _pinned = false;
         _hoverSince = null;
     }
@@ -332,10 +340,12 @@ internal sealed class IslandView
         _radius.Step(dt);
         _content.Step(dt);
         _visible.Step(dt);
+        _tabPill.Step(dt);
         _visualizer.Update(dt, media?.IsPlaying == true, _hub.Volume.Peak);
         if (_expanded) _panel.Update(dt);
 
-        var animating = !(_width.Settled && _height.Settled && _radius.Settled && _content.Settled && _visible.Settled);
+        var animating = !(_width.Settled && _height.Settled && _radius.Settled && _content.Settled && _visible.Settled)
+                        || (_expanded && !_tabPill.Settled);
         if (animating || (_theme.Transitioning && !Hidden)) return 0;
         if (Hidden) return 1;
         var interval = _mode switch
@@ -377,7 +387,6 @@ internal sealed class IslandView
     }
 
     private bool _focusedByClick;
-    private string? _hoveredTab;
     private string? _lastPanelError;
 
     public void Wheel(int delta)
@@ -541,40 +550,42 @@ internal sealed class IslandView
     {
         _panel.Background(_ui, r);
 
-        // Tab bar: icons, with the open panel's name beside its icon when there's room for it.
+        // Tab bar: icons only. A soft rounded square sits behind the open panel's icon and slides
+        // to the next one; hovering any tab shows its name in a small tooltip underneath.
         var x = r.Left + 14;
         var y = r.Top + 27;
         var tabs = _panels.Where(p => p.Available).ToList();
         if (!tabs.Contains(_panel)) _panel = tabs[0];
-        var titleWidth = _ui.Measure(_panel.Title, 12.5f, Theme.Weight.SemiBold) + 14;
-        var actionsWidth = _panel.Actions.Sum(a => _ui.Measure(a.Label, 12) + 16);
-        var room = r.Width - 28 - 70 - actionsWidth - tabs.Count * 30;
-        var showTitle = room >= titleWidth;
-        var step = room < 0 ? Math.Max(24, 30 + room / tabs.Count) : 30;
+        // Spacing depends only on how many tabs there are, never on the open panel, so the icons
+        // stay put when switching. Room is kept for the clock and one short action.
+        var room = r.Width - 28 - 140 - tabs.Count * 31;
+        var step = room < 0 ? Math.Max(24, 31 + room / tabs.Count) : 31;
+        var selectedX = x + step * tabs.IndexOf(_panel) + step / 2;
+        if (_tabPill.Value < 0) _tabPill.Snap(selectedX);
+        _tabPill.Target = selectedX;
+        var pill = Ui.Square((float)_tabPill.Value, y, 12.5f);
+        _ui.Fill(pill, 8, _theme.Overlay(34));
+        (string Title, float X)? tooltip = null;
         foreach (var panel in tabs)
         {
             var selected = panel == _panel;
-            var width = selected && showTitle ? 20 + titleWidth : step;
-            var pill = new SKRect(x, y - 13, x + width, y + 13);
-            if (selected) _ui.Fill(pill, 13, _theme.Overlay(26));
-            else if (_ui.Hovering(pill)) _ui.Fill(pill, 13, _theme.Overlay(14));
-            panel.Icon(_ui.Canvas, x + Math.Min(15, step / 2), y, 15, selected ? _theme.Text : _theme.Dim);
-            if (selected && showTitle) _ui.Text(panel.Title, x + 30, y + 4.5f, width - 32, 12.5f, Theme.Weight.SemiBold);
-            // Without room for the name, hovering a tab shows it in place of the clock.
-            if (_ui.Hovering(pill)) _hoveredTab = panel.Title;
+            var cx = x + step / 2;
+            var hit = new SKRect(x, y - 14, x + step, y + 14);
+            if (!selected && _ui.Hovering(hit)) _ui.Fill(Ui.Square(cx, y, 12.5f), 8, _theme.Overlay(14));
+            panel.Icon(_ui.Canvas, cx, y, 15, selected ? _theme.Text : _theme.Dim);
+            if (_ui.Hovering(hit)) tooltip = (panel.Title, cx);
             if (panel.Badge > 0)
             {
-                _ui.Circle(x + 23, y - 8, 6, _theme.Accent);
-                _ui.Text(panel.Badge > 9 ? "9+" : panel.Badge.ToString(), x + 23, y - 5, 12, 8, Theme.Weight.Bold, _theme.OnAccent, SKTextAlign.Center);
+                _ui.Circle(cx + 8, y - 8, 6, _theme.Accent);
+                _ui.Text(panel.Badge > 9 ? "9+" : panel.Badge.ToString(), cx + 8, y - 5, 12, 8, Theme.Weight.Bold, _theme.OnAccent, SKTextAlign.Center);
             }
             var chosen = panel;
-            _ui.Hit(pill, () => Show(chosen));
-            x += width + 3;
+            _ui.Hit(hit, () => Show(chosen));
+            x += step;
         }
 
         // Clock and the panel's own actions at the right.
-        var clock = _hoveredTab ?? (showTitle ? DateTime.Now.ToShortTimeString() : _panel.Title);
-        _hoveredTab = null;
+        var clock = DateTime.Now.ToShortTimeString();
         var right = r.Right - 20;
         _ui.Text(clock, right, y + 4.5f, 80, 12, Theme.Weight.Regular, _theme.Dim, SKTextAlign.Right);
         right -= _ui.Measure(clock, 12) + 16;
@@ -597,6 +608,16 @@ internal sealed class IslandView
             if (_lastPanelError != ex.Message) Log.Write($"Panel {_panel.Title} failed to draw: {ex}");
             _lastPanelError = ex.Message;
             _ui.Empty(body, $"{_panel.Title} hit a problem", "It's in the log; the rest of HaloBar keeps working.");
+        }
+
+        // Drawn last so it sits over the panel's content.
+        if (tooltip is { } tip)
+        {
+            var w = _ui.Measure(tip.Title, 11, Theme.Weight.SemiBold) + 18;
+            var left = Math.Clamp(tip.X - w / 2, r.Left + 8, r.Right - 8 - w);
+            var box = new SKRect(left, y + 17, left + w, y + 37);
+            _ui.Fill(box, 10, _theme.Text);
+            _ui.Text(tip.Title, box.MidX, box.MidY + 4, w, 11, Theme.Weight.SemiBold, _theme.Background, SKTextAlign.Center);
         }
     }
 }

@@ -59,7 +59,7 @@ internal sealed partial class CalendarService : IDisposable
             if (url.StartsWith("webcal://", StringComparison.OrdinalIgnoreCase)) url = "https://" + url[9..];
             var ics = await _http.GetStringAsync(url);
             var now = DateTime.Now;
-            Events = [.. Parse(ics, now.Date.AddDays(-1), now.Date.AddDays(8)).OrderBy(e => e.Start)];
+            Events = [.. Parse(ics, now.Date.AddDays(-40), now.Date.AddDays(70)).OrderBy(e => e.Start)];
             Status = Events.Count == 0 ? "Nothing in the next week" : "";
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or InvalidOperationException)

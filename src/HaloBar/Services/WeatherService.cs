@@ -7,6 +7,11 @@ namespace HaloBar.Services;
 
 internal sealed record WeatherSnapshot(string Place, double Temperature, int Code, bool IsDay, double High, double Low, bool Fahrenheit, DateTime Updated)
 {
+    /// <summary>Sunrise and sunset in the place's own time.</summary>
+    public DateTime? Sunrise { get; init; }
+    public DateTime? Sunset { get; init; }
+    public double Uv { get; init; }
+
     public string Unit => Fahrenheit ? "°F" : "°C";
 
     public string Describe() => Code switch
@@ -26,6 +31,20 @@ internal sealed record WeatherSnapshot(string Place, double Temperature, int Cod
     };
 }
 
+/// <summary>Air quality now: the US AQI and fine particles in µg/m³.</summary>
+internal sealed record AirSnapshot(int Aqi, double Pm25, double Pm10)
+{
+    public string Describe() => Aqi switch
+    {
+        <= 50 => "Good",
+        <= 100 => "Moderate",
+        <= 150 => "Unhealthy for some",
+        <= 200 => "Unhealthy",
+        <= 300 => "Very unhealthy",
+        _ => "Hazardous",
+    };
+}
+
 /// <summary>
 /// Current weather from Open-Meteo (free, no key). The place is a city the user typed, looked up
 /// with Open-Meteo's geocoder, or the PC's location from Windows when nothing is set.
@@ -40,6 +59,7 @@ internal sealed class WeatherService : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public WeatherSnapshot? Snapshot { get; private set; }
+    public AirSnapshot? Air { get; private set; }
     public string Status { get; private set; } = "Loading…";
     public event Action? Changed;
 
@@ -109,7 +129,7 @@ internal sealed class WeatherService : IDisposable
             }
             var f = _settings.WeatherFahrenheit;
             var url = FormattableString.Invariant($"https://api.open-meteo.com/v1/forecast?latitude={lat:0.####}&longitude={lon:0.####}")
-                      + "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1"
+                      + "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=1"
                       + (f ? "&temperature_unit=fahrenheit" : "");
             using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
             var current = doc.RootElement.GetProperty("current");
@@ -122,8 +142,14 @@ internal sealed class WeatherService : IDisposable
                 daily.GetProperty("temperature_2m_max")[0].GetDouble(),
                 daily.GetProperty("temperature_2m_min")[0].GetDouble(),
                 f,
-                DateTime.Now);
+                DateTime.Now)
+            {
+                Sunrise = Time(daily, "sunrise"),
+                Sunset = Time(daily, "sunset"),
+                Uv = daily.TryGetProperty("uv_index_max", out var uv) && uv[0].ValueKind == JsonValueKind.Number ? uv[0].GetDouble() : 0,
+            };
             Status = "";
+            Air = await AirAsync(lat.Value, lon.Value);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
         {
@@ -135,6 +161,28 @@ internal sealed class WeatherService : IDisposable
             _gate.Release();
         }
         Changed?.Invoke();
+    }
+
+    private static DateTime? Time(JsonElement daily, string name) =>
+        daily.TryGetProperty(name, out var list) && list[0].GetString() is { } text
+        && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time) ? time : null;
+
+    private async Task<AirSnapshot?> AirAsync(double lat, double lon)
+    {
+        try
+        {
+            var url = FormattableString.Invariant($"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat:0.####}&longitude={lon:0.####}")
+                      + "&current=us_aqi,pm2_5,pm10&timezone=auto";
+            using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
+            var current = doc.RootElement.GetProperty("current");
+            return new AirSnapshot((int)Math.Round(current.GetProperty("us_aqi").GetDouble()),
+                current.GetProperty("pm2_5").GetDouble(), current.GetProperty("pm10").GetDouble());
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            Log.Write($"Air quality failed: {ex.Message}");
+            return Air;
+        }
     }
 
     private async Task<(double? Lat, double? Lon, string Place)> LocationAsync()
