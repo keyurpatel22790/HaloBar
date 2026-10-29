@@ -37,7 +37,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Battery time left", "Windows' estimate, on the Battery tile", () => s.ShowBatteryEstimate, v => s.ShowBatteryEstimate = v),
             Toggle("Bluetooth devices", "Connected and disconnected", () => s.ShowBluetoothHud, v => s.ShowBluetoothHud = v),
             Toggle("Caps, Num and Scroll Lock", null, () => s.ShowLockKeysHud, v => s.ShowLockKeysHud = v),
-            Toggle("Microphone mute", "Ctrl+Alt+M mutes and unmutes", () => s.ShowMicHud, v => s.ShowMicHud = v),
+            Toggle("Microphone mute", Keys("mic", "mutes and unmutes"), () => s.ShowMicHud, v => s.ShowMicHud = v),
             Toggle("Camera and microphone in use", "Green and orange dots on the pill", () => s.ShowPrivacyIndicator, v => s.ShowPrivacyIndicator = v),
         ]);
         yield return ("Music", [
@@ -57,7 +57,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Game strip", "CPU, GPU, memory and time while a game is full screen", () => s.GameStrip, v => s.GameStrip = v),
         ]);
         yield return ("Integrations", [
-            Toggle("OBS Studio", "Recording and streaming on the pill; Ctrl+Alt+R records", () => s.ObsEnabled, v => s.ObsEnabled = v),
+            Toggle("OBS Studio", "Recording and streaming on the pill" + Keys("obs", "records", "; "), () => s.ObsEnabled, v => s.ObsEnabled = v),
             Toggle("Use OBS's own settings", "Reads the websocket port and password from OBS on this PC", () => s.ObsAuto, v => s.ObsAuto = v),
             Toggle("AI agents", "Claude Code and others: working, waiting, done", () => s.AgentsEnabled, v => s.AgentsEnabled = v),
             Toggle("Notify when an agent finishes", null, () => s.AgentsNotify, v => s.AgentsNotify = v),
@@ -66,6 +66,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Notifications", null, () => s.NotificationsPanel, v => s.NotificationsPanel = v),
             Toggle("Reminders and to-dos", null, () => s.RemindersPanel, v => s.RemindersPanel = v),
             Toggle("Apps", "Six launcher slots", () => s.LauncherPanel, v => s.LauncherPanel = v),
+            Toggle("Web", "Pinned sites in a drawer under the island", () => s.WebPanel, v => s.WebPanel = v),
             Toggle("Phone", "Send files to and from your phone with a QR code", () => s.PhoneShare, v => s.PhoneShare = v),
             Toggle("Call", "A camera mirror and microphone switch", () => s.CameraEnabled, v => s.CameraEnabled = v),
             Toggle("Chat", "A Twitch channel's live chat", () => s.ChatPanel, v => s.ChatPanel = v),
@@ -80,6 +81,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
                 () => s.HoverDelayMs.ToString(), v => { s.HoverDelayMs = int.Parse(v); applyLayout(); }, " ms"),
             Toggle("Meeting countdown", "On the pill before a calendar meeting", () => s.MeetingCountdown, v => s.MeetingCountdown = v),
             Toggle("Clipboard history", null, () => s.ClipboardEnabled, v => s.ClipboardEnabled = v),
+            Toggle("Sound in screen recordings", "What the PC plays; recordings go to Videos\\HaloBar", () => s.RecordSound, v => s.RecordSound = v),
             Toggle("Mirror Windows notifications", "Takes effect after a restart", () => s.MirrorNotifications, v => s.MirrorNotifications = v),
             Toggle("Turn off Windows banners", "For apps shown here; they stay in the notification centre", () => s.QuietWindowsBanners, v =>
             {
@@ -89,6 +91,83 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             }),
             new("Start with Windows", null, null, () => StartupRegistration.Set(!StartupRegistration.IsEnabled), () => StartupRegistration.IsEnabled),
         ]);
+        yield return ("Keys", [.. KeyRows()]);
+    }
+
+    /// <summary>"Ctrl+Alt+M mutes and unmutes", or "" when the action has no shortcut.</summary>
+    private string Keys(string action, string does, string before = "") =>
+        Hub.Hotkeys.Text(action) is { Length: > 0 } keys ? $"{before}{keys} {does}" : "";
+
+    // ───────────────────────────── shortcuts ─────────────────────────────
+
+    private string? _captureFor;
+    private bool _focusCapture;
+    private string _captureNote = "";
+    private TextField? _capture;
+
+    /// <summary>One row per action: click it, then press the new keys.</summary>
+    private IEnumerable<Row> KeyRows()
+    {
+        foreach (var action in HotkeyService.Actions)
+        {
+            var id = action.Id;
+            var capturing = _captureFor == id;
+            var hint = capturing ? (_captureNote.Length > 0 ? _captureNote : "Press the new keys · Backspace clears · Esc cancels")
+                : Hub.Hotkeys.Taken(id) ? "Taken by another app; pick other keys" : null;
+            yield return new(action.Label, hint, () => capturing ? "Press keys…" : Hub.Hotkeys.Text(id) is { Length: > 0 } t ? t : "None",
+                () => StartCapture(id));
+        }
+        yield return new("Back to the usual shortcuts", null, () => "Reset", () =>
+        {
+            Hub.Hotkeys.Reset();
+            Hub.Hotkeys.Register();
+        });
+    }
+
+    private void StartCapture(string id)
+    {
+        _capture ??= new TextField("", _ => { }) { CaptureKey = OnCaptureKey, Ended = EndCapture };
+        _captureFor = id;
+        _captureNote = "";
+        _focusCapture = true;
+        // Let every shortcut go, so pressing one of them now reaches us instead of firing it.
+        Hub.Hotkeys.Unregister();
+    }
+
+    private bool OnCaptureKey(int vk)
+    {
+        static bool Down(int key) => Platform.Native.GetKeyState(key) < 0;
+        uint mods = 0;
+        if (Down(0x11)) mods |= Platform.Native.MOD_CONTROL;
+        if (Down(0x12)) mods |= Platform.Native.MOD_ALT;
+        if (Down(0x10)) mods |= Platform.Native.MOD_SHIFT;
+        if (Down(0x5B) || Down(0x5C)) mods |= Gesture.Win;
+        if (_captureFor is not { } id) return true;
+        if (mods == 0 && vk == 0x1B) return true; // Esc: keep what it was
+        if (mods == 0 && vk is 0x08 or 0x2E) // Backspace or Delete: no shortcut
+        {
+            Hub.Hotkeys.Set(id, null);
+            return true;
+        }
+        if (Gesture.IsModifierKey((uint)vk)) return false; // wait for the real key
+        var gesture = new Gesture(mods, (uint)vk);
+        if (Gesture.Parse(gesture.ToString()) == null)
+        {
+            _captureNote = $"{gesture} would get in the way of typing; add Ctrl, Alt or Win";
+            return false;
+        }
+        Hub.Hotkeys.Set(id, gesture);
+        return true;
+    }
+
+    private void EndCapture()
+    {
+        // Clicking another shortcut while choosing one ends the old capture after the new one
+        // has started; that new one carries on.
+        if (_focusCapture) return;
+        _captureFor = null;
+        _captureNote = "";
+        Hub.Hotkeys.Register();
     }
 
     /// <summary>A rule for the app in front, then the rules already made.</summary>
@@ -114,6 +193,21 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
 
     private int RowCount => Sections().Sum(s => s.Rows.Length + 1);
 
+    /// <summary>"keys" (or any section's name) scrolls to that section.</summary>
+    public override void GoTo(string place)
+    {
+        var y = 0f;
+        foreach (var (section, rows) in Sections())
+        {
+            if (section.Equals(place, StringComparison.OrdinalIgnoreCase))
+            {
+                _scroll.Snap(Math.Clamp(y, 0, Math.Max(0, RowCount * RowHeight - 140)));
+                return;
+            }
+            y += RowHeight * 0.8f + rows.Length * RowHeight + 4;
+        }
+    }
+
     public override bool Wheel(float notches)
     {
         var max = Math.Max(0, RowCount * RowHeight - 140);
@@ -123,6 +217,11 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
 
     public override void Draw(Ui ui, SKRect body)
     {
+        if (_focusCapture && _capture != null)
+        {
+            _focusCapture = false;
+            ui.Focus(_capture);
+        }
         var area = new SKRect(body.Left + 8, body.Top, body.Right - 8, body.Bottom - 6);
         ui.Canvas.Save();
         ui.Canvas.ClipRect(area);

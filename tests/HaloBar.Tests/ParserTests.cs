@@ -186,6 +186,93 @@ public class AgentTests
     }
 }
 
+public class AgentHookTests
+{
+    [Fact]
+    public void Follows_codex_and_gemini_sessions()
+    {
+        var agents = new AgentService(47900);
+        agents.OnHookEvent("codex", """{"session_id":"c1","hook_event_name":"PreToolUse","cwd":"D:\\work\\Shop","tool_name":"Bash","tool_input":{"command":"npm test"}}""");
+        agents.OnHookEvent("codex", """{"session_id":"c1","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"description":"Delete the build folder"}}""");
+        agents.OnHookEvent("gemini", """{"session_id":"g1","hook_event_name":"BeforeTool","cwd":"C:\\code\\Site","tool_name":"write_file","tool_input":{"file_path":"C:\\code\\Site\\index.html"}}""");
+        agents.OnHookEvent("nobody", """{"session_id":"x","hook_event_name":"Stop"}""");
+
+        var codex = Assert.Single(agents.Sessions, s => s.Agent == "Codex");
+        Assert.Equal(AgentState.Waiting, codex.State);
+        Assert.Equal("Wants to: Delete the build folder", codex.Doing);
+        Assert.Equal("Shop", codex.Project);
+        var gemini = Assert.Single(agents.Sessions, s => s.Agent == "Gemini CLI");
+        Assert.Equal("Writing index.html", gemini.Doing);
+        Assert.Equal(2, agents.Sessions.Count);
+
+        agents.OnHookEvent("gemini", """{"session_id":"g1","hook_event_name":"AfterAgent"}""");
+        Assert.Equal(AgentState.Done, gemini.State);
+    }
+
+    [Fact]
+    public void Connecting_adds_only_halobars_hooks_and_disconnecting_takes_only_those()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "halobar-hooks-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var agents = new AgentService(47900);
+            var gemini = AgentService.Targets.Single(t => t.Id == "gemini");
+            var settings = Path.Combine(folder, "settings.json");
+            const string mine = """{"theme":"dark","hooks":{"BeforeTool":[{"matcher":"write_file","hooks":[{"type":"command","command":"my-scanner"}]}]}}""";
+            File.WriteAllText(settings, mine);
+
+            agents.Connect(gemini, settings);
+            var connected = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(settings))!;
+            Assert.Equal(2, connected["hooks"]!["BeforeTool"]!.AsArray().Count);       // theirs and ours
+            Assert.Equal(5000, (int)connected["hooks"]!["AfterAgent"]![0]!["hooks"]![0]!["timeout"]!); // Gemini counts ms
+            Assert.True(File.Exists(settings + ".halobar-backup"));
+
+            agents.Connect(gemini, settings); // twice is the same as once
+            Assert.Equal(2, System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(settings))!["hooks"]!["BeforeTool"]!.AsArray().Count);
+
+            agents.Disconnect(gemini, settings);
+            Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(mine), System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(settings))));
+
+            // Codex: a hooks.json HaloBar made, with a Windows command, removed again on disconnect.
+            var codex = AgentService.Targets.Single(t => t.Id == "codex");
+            var hooksJson = Path.Combine(folder, "hooks.json");
+            agents.Connect(codex, hooksJson);
+            var hook = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(hooksJson))!["hooks"]!["Stop"]![0]!["hooks"]![0]!;
+            Assert.StartsWith("curl.exe ", (string)hook["commandWindows"]!);
+            Assert.Contains("/agent/codex?", (string)hook["command"]!);
+            agents.Disconnect(codex, hooksJson);
+            Assert.False(File.Exists(hooksJson));
+        }
+        finally
+        {
+            Directory.Delete(folder, true);
+        }
+    }
+}
+
+public class WebSiteTests
+{
+    [Theory]
+    [InlineData("Notion notion.so", "Notion", "https://notion.so/")]
+    [InlineData("notion.so", "Notion", "https://notion.so/")]
+    [InlineData("https://music.youtube.com", "Youtube", "https://music.youtube.com/")]
+    [InlineData("My Mail https://mail.google.com/mail/u/0", "My Mail", "https://mail.google.com/mail/u/0")]
+    public void Reads_what_was_typed(string text, string name, string url)
+    {
+        var site = HaloBar.Platform.WebSite.FromTyped(text);
+        Assert.NotNull(site);
+        Assert.Equal(name, site.Name);
+        Assert.Equal(url, site.Url);
+        Assert.Equal(site, HaloBar.Platform.WebSite.Parse(site.ToString()));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("just words")]
+    public void Ignores_text_without_an_address(string text) => Assert.Null(HaloBar.Platform.WebSite.FromTyped(text));
+}
+
 public class StatsTests
 {
     [Theory]
@@ -352,6 +439,47 @@ public class BannerTests
     {
         using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey($@"{root}\{app}");
         return k?.GetValue("ShowBanner");
+    }
+}
+
+public class HotkeyTests
+{
+    [Theory]
+    [InlineData("Ctrl+Alt+I", "Ctrl+Alt+I")]
+    [InlineData("alt + ctrl + i", "Ctrl+Alt+I")]
+    [InlineData("Shift+Win+F5", "Win+Shift+F5")]
+    [InlineData("Ctrl+Alt+Num7", "Ctrl+Alt+Num7")]
+    [InlineData("Ctrl+Shift+/", "Ctrl+Shift+/")]
+    [InlineData("Ctrl+Space", "Ctrl+Space")]
+    [InlineData("F9", "F9")]
+    public void Reads_and_writes_shortcuts(string text, string expected) => Assert.Equal(expected, Gesture.Parse(text)?.ToString());
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("I")]          // no modifier: would eat normal typing
+    [InlineData("Ctrl+Alt")]   // no key
+    [InlineData("Ctrl+I+O")]   // two keys
+    [InlineData("Ctrl+Banana")]
+    public void Rejects_what_cant_be_a_shortcut(string text) => Assert.Null(Gesture.Parse(text));
+
+    [Fact]
+    public void Moving_a_shortcut_takes_it_from_the_action_that_had_it()
+    {
+        var settings = new HaloBar.AppSettings();
+        var keys = new HotkeyService(settings, IntPtr.Zero, save: () => { }); // never touch the real settings.json
+        Assert.Equal("Ctrl+Alt+I", keys.Text("open"));
+        Assert.Equal("", keys.Text("next"));
+
+        keys.Set("next", Gesture.Parse("Ctrl+Alt+I"));
+        Assert.Equal("Ctrl+Alt+I", keys.Text("next"));
+        Assert.Equal("", keys.Text("open"));
+
+        keys.Set("open", Gesture.Parse("Ctrl+Alt+I"));   // back to its default: stored as no entry
+        Assert.False(settings.Hotkeys.ContainsKey("open"));
+        keys.Set("mic", null);
+        Assert.Equal("", keys.Text("mic"));
+        keys.Reset();
+        Assert.Equal("Ctrl+Alt+M", keys.Text("mic"));
     }
 }
 

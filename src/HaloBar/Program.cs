@@ -149,23 +149,6 @@ internal sealed class IslandApp : IDisposable
     private static readonly TimeSpan TrimEvery = TimeSpan.FromMinutes(5);
     private static readonly SKColor Green = new(0x34, 0xC7, 0x59), Orange = new(0xFF, 0x9F, 0x0A), Red = new(0xFF, 0x45, 0x3A);
 
-    private enum HotkeyAction { ToggleCard = 1, PlayPause, Timer, Hide, MicMute, NewReminder, Output, ColorPick, Screenshot, ObsRecord }
-
-    /// <summary>Default shortcuts; one taken by another app is skipped and logged.</summary>
-    private static readonly (HotkeyAction Action, uint Modifiers, uint Key, string Name)[] Hotkeys =
-    [
-        (HotkeyAction.ToggleCard, MOD_CONTROL | MOD_ALT, 'I', "Ctrl+Alt+I"),
-        (HotkeyAction.PlayPause, MOD_CONTROL | MOD_ALT, 'P', "Ctrl+Alt+P"),
-        (HotkeyAction.Timer, MOD_CONTROL | MOD_ALT, 'T', "Ctrl+Alt+T"),
-        (HotkeyAction.Hide, MOD_CONTROL | MOD_ALT, 'H', "Ctrl+Alt+H"),
-        (HotkeyAction.MicMute, MOD_CONTROL | MOD_ALT, 'M', "Ctrl+Alt+M"),
-        (HotkeyAction.NewReminder, MOD_CONTROL | MOD_ALT, 'E', "Ctrl+Alt+E"),
-        (HotkeyAction.Output, MOD_CONTROL | MOD_ALT, 'O', "Ctrl+Alt+O"),
-        (HotkeyAction.ColorPick, MOD_CONTROL | MOD_ALT, 'C', "Ctrl+Alt+C"),
-        (HotkeyAction.Screenshot, MOD_CONTROL | MOD_ALT, 'F', "Ctrl+Alt+F"),
-        (HotkeyAction.ObsRecord, MOD_CONTROL | MOD_ALT, 'R', "Ctrl+Alt+R"),
-    ];
-
     private readonly AppSettings _settings;
     private readonly HostWindow _host = new();
     private GraphicsDevice _gfx;
@@ -180,7 +163,6 @@ internal sealed class IslandApp : IDisposable
     private readonly VolumeFlyoutSuppressor _flyout = new();
     private readonly TrayIcon _tray;
     private readonly ConcurrentQueue<Action> _ui = new();
-    private readonly HashSet<HotkeyAction> _registeredHotkeys = [];
     private List<IslandScreen> _screens = [];
     private volatile bool _dirty = true;
     private bool _layoutDirty, _userHidden;
@@ -247,6 +229,10 @@ internal sealed class IslandApp : IDisposable
             Downloads = new DownloadService(),
             Ticker = new TickerService(settings),
             ScreenTime = new ScreenTimeService(settings),
+            Hotkeys = new HotkeyService(settings, _host.Handle),
+            Web = new WebDrawer(() => ScreenUnderCursor()?.Monitor, Post, url => Open(url)),
+            Recorder = new ScreenRecorder(),
+            ToggleRecording = () => Post(ToggleRecording),
             Banners = new BannerService(settings),
             ApiPort = settings.NotifyPort,
             ShowHud = hud => Post(() => ShowHud(hud)),
@@ -269,15 +255,13 @@ internal sealed class IslandApp : IDisposable
             LeftClick = () => ScreenUnderCursor()?.View.ToggleExpanded(),
             BuildMenu = TrayMenu,
         };
-        foreach (var (action, modifiers, key, name) in Hotkeys)
-        {
-            if (RegisterHotKey(_host.Handle, (int)action, modifiers | MOD_NOREPEAT, key)) _registeredHotkeys.Add(action);
-            else Log.Write($"Hotkey {name} is taken by another app");
-        }
+        _hub.Hotkeys.Pressed += OnHotkey;
+        _hub.Hotkeys.Register();
         if (settings.ReplaceVolumePopup) _flyout.Ensure();
         _locks = ReadLocks();
 
         StartServices();
+        SyncWidgets();
     }
 
     // ───────────────────────────── screens ─────────────────────────────
@@ -372,7 +356,47 @@ internal sealed class IslandApp : IDisposable
         _gfx.Dispose();
         _gfx = new GraphicsDevice();
         foreach (var s in _screens) s.ReplaceSurface(_gfx);
+        foreach (var w in _widgets) w.ReplaceSurface(_gfx);
         _dirty = true;
+    }
+
+    // ───────────────────────────── desktop widgets ─────────────────────────────
+
+    private readonly List<DesktopWidget> _widgets = [];
+
+    /// <summary>
+    /// Opens a window for each tile pinned to the desktop and closes the ones unpinned. A newly
+    /// pinned tile starts at the right of the primary screen, below the ones already there.
+    /// </summary>
+    private void SyncWidgets()
+    {
+        var places = _settings.DesktopWidgets;
+        foreach (var gone in _widgets.Where(w => !places.Contains(w.Place)).ToList())
+        {
+            _widgets.Remove(gone);
+            gone.Dispose();
+        }
+        foreach (var place in places.Where(p => _widgets.All(w => w.Place != p)).ToList())
+        {
+            var tile = UI.Tiles.TileCatalogue.Create(_hub).FirstOrDefault(t => t.Id == place.Tile);
+            if (tile == null)
+            {
+                places.Remove(place);
+                continue;
+            }
+            if (place.X == 0 && place.Y == 0)
+            {
+                var primary = Monitors.All().FirstOrDefault(m => m.IsPrimary) ?? Monitors.All().First();
+                var info = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
+                var work = GetMonitorInfoW(primary.Handle, ref info) ? info.rcWork : primary.Bounds;
+                var s = primary.Scale;
+                var width = (int)((place.Wide ? DesktopWidget.WideWidth : DesktopWidget.NarrowWidth) * s);
+                var below = _widgets.Where(w => w.Place.X >= work.Right - (int)(320 * s)).Select(w => w.Window.Rect.Bottom).DefaultIfEmpty(work.Top + (int)(60 * s)).Max();
+                (place.X, place.Y) = (work.Right - width - (int)(24 * s), below + (int)(12 * s));
+                _settings.Save();
+            }
+            _widgets.Add(new DesktopWidget(_hub, _gfx, tile, place));
+        }
     }
 
     // ───────────────────────────── services ─────────────────────────────
@@ -474,7 +498,14 @@ internal sealed class IslandApp : IDisposable
         _launcher.Changed += Invalidate;
         _agents.Changed += Invalidate;
         _agents.StateChanged += (session, previous) => Post(() => OnAgentState(session, previous));
-        _server.ClaudeEvent += json => _agents.OnClaudeEvent(json);
+        _server.HookEvent += (agent, json) => _agents.OnHookEvent(agent, json);
+        _server.WebRequested += site => Post(() => ToggleWeb(site));
+        _server.RecordRequested += action => Post(() =>
+        {
+            if (action == "toggle" || (action == "start") != _hub.Recorder.Recording) ToggleRecording();
+        });
+        _hub.Web.Changed += Invalidate;
+        _hub.Recorder.Changed += Invalidate;
         _server.AgentEvent += (name, state, text, project) => _agents.OnCustom(name, state, text, project);
         h.Ticker.Changed += Invalidate;
         h.Ticker.Start();
@@ -516,6 +547,17 @@ internal sealed class IslandApp : IDisposable
         _server.PanelRequested += name => Post(() => ScreenUnderCursor()?.View.OpenPanel(name));
         _server.SnapshotRequested += (file, panel) => Post(() =>
         {
+            // "widget:date" saves that desktop widget's picture, since it usually sits behind windows.
+            if (panel?.StartsWith("widget:", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (_widgets.FirstOrDefault(w => w.TileId.Equals(panel[7..], StringComparison.OrdinalIgnoreCase)) is { } widget)
+                {
+                    widget.Render(0);
+                    using var data = widget.Picture.Encode(SKEncodedImageFormat.Png, 100);
+                    File.WriteAllBytes(file, data.ToArray());
+                }
+                return;
+            }
             if (_screens.FirstOrDefault()?.View is not { } view) return;
             _snapshot = (file, 45); // let the opening animation settle first
             view.Hidden = false;    // a hidden island would close the panel again
@@ -559,6 +601,8 @@ internal sealed class IslandApp : IDisposable
     /// </summary>
     private Activity? CurrentActivity()
     {
+        if (_hub.Recorder.Recording)
+            return new Activity(85, HudIcon.Record, "Recording", Red, Right: Ui.Clock(DateTime.Now - _hub.Recorder.Since));
         if (_obs.Recording)
             return new Activity(80, HudIcon.Record, _obs.Streaming ? "Recording · Live" : "Recording", Red, Right: Ui.Clock(DateTime.Now - _obs.RecordingSince));
         if (_obs.Streaming)
@@ -679,43 +723,113 @@ internal sealed class IslandApp : IDisposable
         _locks = now;
     }
 
-    private void OnHotkey(HotkeyAction action)
+    private void OnHotkey(string action)
     {
         switch (action)
         {
-            case HotkeyAction.ToggleCard: ScreenUnderCursor()?.View.ToggleExpanded(); break;
-            case HotkeyAction.PlayPause: _hub.Media.TogglePlayPause(); break;
-            case HotkeyAction.Timer:
+            case "open": ScreenUnderCursor()?.View.ToggleExpanded(); break;
+            case "playpause": _hub.Media.TogglePlayPause(); break;
+            case "next": _hub.Media.Next(); break;
+            case "web": ToggleWeb(null); break;
+            case "record": ToggleRecording(); break;
+            case "previous": _hub.Media.Previous(); break;
+            case "timer":
                 _hub.Timer.Toggle();
                 ShowHud(new Hud(HudIcon.Timer, _hub.Timer.Paused ? "Timer paused" : "Focus timer", Detail: Ui.Clock(_hub.Timer.Remaining)));
                 break;
-            case HotkeyAction.Hide:
+            case "hide":
                 _userHidden = !_userHidden;
                 Log.Write(_userHidden ? "Island hidden by hotkey" : "Island shown by hotkey");
                 break;
-            case HotkeyAction.MicMute: _hub.Microphone.ToggleMute(); break;
-            case HotkeyAction.NewReminder: ScreenUnderCursor()?.View.NewReminder(); break;
-            case HotkeyAction.ColorPick: PickColor(); break;
-            case HotkeyAction.ObsRecord:
+            case "mic": _hub.Microphone.ToggleMute(); break;
+            case "reminder": ScreenUnderCursor()?.View.NewReminder(); break;
+            case "color": PickColor(); break;
+            case "obs":
                 if (_obs.Connected) _obs.ToggleRecord();
                 else ShowHud(new Hud(HudIcon.Record, "OBS isn't connected", Detail: _obs.Status));
                 break;
-            case HotkeyAction.Screenshot: TakeScreenshot(); break;
-            case HotkeyAction.Output:
+            case "screenshot": TakeScreenshot(); break;
+            case "output":
                 if (ControlsService.CycleDefault(NAudio.CoreAudioApi.DataFlow.Render) is { } name)
                     ShowHud(new Hud(HudIcon.Volume, name, Detail: "Output"));
+                break;
+            case ['l', 'a', 'u', 'n', 'c', 'h', var digit] when char.IsAsciiDigit(digit):
+                if (_hub.Launcher.Slotted.ElementAtOrDefault(digit - '1') is { } app) Open(app.ShellPath);
+                else ShowHud(new Hud(HudIcon.Info, $"Slot {digit} is empty", Detail: "Pick an app on the Apps panel"));
                 break;
         }
         _dirty = true;
     }
 
+    private bool _recorderBusy;
+
+    /// <summary>
+    /// Starts recording the screen the pointer is on, or stops and saves the file to the shelf.
+    /// Finishing a file can take a moment, so it happens off the window thread.
+    /// </summary>
+    private void ToggleRecording()
+    {
+        if (_recorderBusy) return;
+        var recorder = _hub.Recorder;
+        if (!recorder.Recording)
+        {
+            if (ScreenUnderCursor()?.Monitor is not { } monitor) return;
+            if (recorder.Start(monitor.Handle, _settings.RecordSound) is { } error)
+                ShowHud(new Hud(HudIcon.Record, "Couldn't record", Detail: error), TimeSpan.FromSeconds(3));
+            return;
+        }
+        _recorderBusy = true;
+        Task.Run(() =>
+        {
+            var saved = recorder.Stop();
+            Post(() =>
+            {
+                _recorderBusy = false;
+                if (saved == null)
+                {
+                    ShowHud(new Hud(HudIcon.Record, "Nothing recorded"), TimeSpan.FromSeconds(2));
+                    return;
+                }
+                _hub.Shelf.Add([saved]);
+                ShowHud(new Hud(HudIcon.Record, "Recording saved", Detail: Path.GetFileName(saved)), TimeSpan.FromSeconds(3));
+            });
+        });
+    }
+
+    /// <summary>
+    /// Shows or hides the web drawer. <paramref name="which"/> is a site's name or address, an
+    /// address that isn't pinned, "none" to hide, or null for the site shown last.
+    /// </summary>
+    private void ToggleWeb(string? which)
+    {
+        var sites = _settings.WebSites.Select(WebSite.Parse).OfType<WebSite>().ToList();
+        if (which?.Equals("none", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _hub.Web.Hide();
+            return;
+        }
+        var site = which == null
+            ? sites.FirstOrDefault(s => s.Url == _hub.Web.Last) ?? sites.FirstOrDefault()
+            : sites.FirstOrDefault(s => s.Name.Equals(which, StringComparison.OrdinalIgnoreCase))
+              ?? sites.FirstOrDefault(s => s.Host.Contains(which, StringComparison.OrdinalIgnoreCase))
+              ?? WebSite.FromTyped(which);
+        if (site == null) return;
+        if (which == null) _hub.Web.Toggle(site);
+        else _hub.Web.Show(site);
+    }
+
+    /// <summary>A menu label with its current shortcut after a tab, as Windows menus show them.</summary>
+    private string Menu(string label, string action) =>
+        _hub.Hotkeys.Text(action) is { Length: > 0 } keys ? $"{label}\t{keys}" : label;
+
     private IReadOnlyList<TrayMenuItem> TrayMenu() =>
     [
-        new("Open island\tCtrl+Alt+I", () => ScreenUnderCursor()?.View.ToggleExpanded()),
-        new("New reminder\tCtrl+Alt+E", () => ScreenUnderCursor()?.View.NewReminder()),
-        new("Take a screenshot\tCtrl+Alt+F", TakeScreenshot),
-        new("Pick a colour\tCtrl+Alt+C", PickColor),
-        new(_hub.Timer.Running ? "Pause focus timer\tCtrl+Alt+T" : "Start focus timer\tCtrl+Alt+T", _hub.Timer.Toggle),
+        new(Menu("Open island", "open"), () => ScreenUnderCursor()?.View.ToggleExpanded()),
+        new(Menu("New reminder", "reminder"), () => ScreenUnderCursor()?.View.NewReminder()),
+        new(Menu("Take a screenshot", "screenshot"), TakeScreenshot),
+        new(Menu("Pick a colour", "color"), PickColor),
+        new(Menu(_hub.Recorder.Recording ? "Stop recording" : "Record the screen", "record"), ToggleRecording),
+        new(Menu(_hub.Timer.Running ? "Pause focus timer" : "Start focus timer", "timer"), _hub.Timer.Toggle),
         TrayMenuItem.Separator,
         TrayMenuItem.Submenu("Surface", [.. Looks.Surfaces.Select(s =>
             new TrayMenuItem(s.Name, () => _theme.Choose(surface: s), s == _theme.Surface))]),
@@ -746,7 +860,7 @@ internal sealed class IslandApp : IDisposable
             _layoutDirty = true;
             _settings.Save();
         }, _settings.HideFromCapture),
-        new("Hide the island\tCtrl+Alt+H", () => _userHidden = !_userHidden, _userHidden),
+        new(Menu("Hide the island", "hide"), () => _userHidden = !_userHidden, _userHidden),
         TrayMenuItem.Separator,
         new($"Windows notifications: {_hub.Notifications.Status}", () => { }, Enabled: false),
         new($"Local API: 127.0.0.1:{_server.Port}", () => { }, Enabled: false),
@@ -787,7 +901,7 @@ internal sealed class IslandApp : IDisposable
         switch (msg)
         {
             case WM_HOTKEY:
-                OnHotkey((HotkeyAction)(int)wParam);
+                _hub.Hotkeys.OnHotkey((int)wParam);
                 return true;
             case WM_CLIPBOARDUPDATE:
                 if (_settings.ClipboardEnabled) _hub.Clipboard.OnClipboardUpdate();
@@ -849,6 +963,7 @@ internal sealed class IslandApp : IDisposable
                 _hub.Timer.Tick();
                 _hub.Reminders.Tick();
                 _hub.ScreenTime.Tick(_frontApp);
+                SyncWidgets();
                 nextSecond = now + 1;
             }
 
@@ -897,6 +1012,12 @@ internal sealed class IslandApp : IDisposable
                 s.LastFrame = now;
                 rendered = true;
                 animating |= s.Interval == 0;
+            }
+            foreach (var w in _widgets)
+            {
+                if (!_dirty && !w.Due(now)) continue;
+                lost |= !w.Render(now);
+                rendered = true;
             }
             _dirty = false;
             if (_snapshot is { } snap && _screens.Count > 0)
@@ -969,7 +1090,10 @@ internal sealed class IslandApp : IDisposable
     public void Dispose()
     {
         _flyout.Dispose();
-        foreach (var action in _registeredHotkeys) UnregisterHotKey(_host.Handle, (int)action);
+        _hub.Hotkeys.Unregister();
+        _hub.Web.Dispose();
+        _hub.Recorder.Dispose();
+        foreach (var w in _widgets) w.Dispose();
         RemoveClipboardFormatListener(_host.Handle);
         _tray.Dispose();
         _server.Dispose();

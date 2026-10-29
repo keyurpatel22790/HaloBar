@@ -74,14 +74,17 @@ internal sealed class TrayIcon : IDisposable
         return true;
     }
 
-    private void ShowMenu()
+    private void ShowMenu() => Popup(_hwnd, BuildMenu?.Invoke() ?? []);
+
+    /// <summary>Shows <paramref name="items"/> as a menu at the pointer, owned by <paramref name="hwnd"/>, and runs the one chosen.</summary>
+    public static void Popup(IntPtr hwnd, IReadOnlyList<TrayMenuItem> items)
     {
         var commands = new List<TrayMenuItem>();
-        var menu = Build(BuildMenu?.Invoke() ?? [], commands);
+        var menu = Build(items, commands);
         GetCursorPos(out var p);
         // Without this the menu won't close when clicking elsewhere.
-        SetForegroundWindow(_hwnd);
-        var chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, p.X, p.Y, 0, _hwnd, IntPtr.Zero);
+        SetForegroundWindow(hwnd);
+        var chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, p.X, p.Y, 0, hwnd, IntPtr.Zero);
         DestroyMenu(menu); // also destroys the submenus attached to it
         if (chosen > 0) commands[chosen - 1].OnClick();
     }

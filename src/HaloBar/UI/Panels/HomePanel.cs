@@ -73,7 +73,8 @@ internal sealed class HomePanel : Panel
     /// <summary>"edit" opens the editor; a number turns to that page.</summary>
     public override void GoTo(string place)
     {
-        _editing = place.Equals("edit", StringComparison.OrdinalIgnoreCase);
+        _desktop = place.Equals("desktop", StringComparison.OrdinalIgnoreCase);
+        _editing = _desktop || place.Equals("edit", StringComparison.OrdinalIgnoreCase);
         if (int.TryParse(place, out var page))
         {
             Turn(page - 1, Math.Max(1, Pages().Count));
@@ -179,16 +180,30 @@ internal sealed class HomePanel : Panel
         ui.Canvas.ClipRect(view);
         var y = body.Top + 14 - _editScroll;
 
-        ui.Text("Tiles", body.Left + 20, y + 4, 60, 12, Theme.Weight.SemiBold);
-        ui.Text("Click to add, again to make it wide (or narrow), again to remove.", body.Left + 62, y + 4, body.Width - 84, 11,
+        // Island or desktop: which the chips below place tiles on.
+        var x = ui.Chip(body.Left + 18, y, "Island", () => _desktop = false, !_desktop, size: 11.5f).Right + 4;
+        x = ui.Chip(x, y, "Desktop", () => _desktop = true, _desktop, size: 11.5f).Right + 12;
+        ui.Text(_desktop ? "Click to pin, again for wide, again to unpin. Drag widgets; right-click one for more."
+                : "Click to add, again to make it wide (or narrow), again to remove.", x, y + 4, body.Right - 20 - x, 11,
             Theme.Weight.Regular, Theme.Dim);
-        y += 28;
-        var x = body.Left + 20;
+        y += 30;
+        x = body.Left + 20;
         foreach (var tile in _catalogue)
         {
-            var index = Chosen.IndexOf(tile.Id);
-            var wide = Wide.Contains(tile.Id);
-            var label = index < 0 ? tile.Name : $"{index + 1}  {tile.Name}{(wide ? "  ▭▭" : "")}";
+            string label;
+            bool on;
+            if (_desktop)
+            {
+                var place = Pinned.FirstOrDefault(p => p.Tile == tile.Id);
+                on = place != null;
+                label = place == null ? tile.Name : $"{tile.Name}{(place.Wide ? "  ▭▭" : "  ▭")}";
+            }
+            else
+            {
+                var index = Chosen.IndexOf(tile.Id);
+                on = index >= 0;
+                label = index < 0 ? tile.Name : $"{index + 1}  {tile.Name}{(Wide.Contains(tile.Id) ? "  ▭▭" : "")}";
+            }
             var width = ui.Measure(label, 11.5f) + 22;
             if (x + width > body.Right - 20)
             {
@@ -196,7 +211,7 @@ internal sealed class HomePanel : Panel
                 y += 28;
             }
             var chosen = tile;
-            x = ui.Chip(x, y, label, () => Cycle(chosen), index >= 0, size: 11.5f).Right + 6;
+            x = ui.Chip(x, y, label, () => { if (_desktop) Pin(chosen); else Cycle(chosen); }, on, size: 11.5f).Right + 6;
         }
 
         y += 36;
@@ -251,6 +266,23 @@ internal sealed class HomePanel : Panel
             var at = view.Top + 4 + (track - thumb) * _editScroll / (_editHeight - _editView);
             ui.Fill(new SKRect(view.Right - 7, at, view.Right - 4, at + thumb), 1.5f, Theme.Faint);
         }
+    }
+
+    private bool _desktop;
+    private List<DesktopWidgetPlace> Pinned => Hub.Settings.DesktopWidgets;
+
+    /// <summary>On the desktop: not pinned → pinned at its usual width → the other width → not pinned.</summary>
+    private void Pin(Tile tile)
+    {
+        var place = Pinned.FirstOrDefault(p => p.Tile == tile.Id);
+        if (place == null) Pinned.Add(new DesktopWidgetPlace { Tile = tile.Id, Wide = tile.WideByDefault });
+        else if (place.Wide == tile.WideByDefault)
+        {
+            // Same spot, other width: a new entry so the widget window is rebuilt at its new size.
+            Pinned[Pinned.IndexOf(place)] = new DesktopWidgetPlace { Tile = place.Tile, X = place.X, Y = place.Y, Wide = !place.Wide };
+        }
+        else Pinned.Remove(place);
+        Hub.Settings.Save();
     }
 
     /// <summary>Not shown → shown at its usual width → the other width → not shown.</summary>
