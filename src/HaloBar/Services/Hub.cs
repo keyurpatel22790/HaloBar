@@ -38,6 +38,11 @@ internal sealed class Hub
     public required CameraService Camera { get; init; }
     public required ScreenTimeService ScreenTime { get; init; }
     public required BannerService Banners { get; init; }
+    public required HotkeyService Hotkeys { get; init; }
+    public required Platform.WebDrawer Web { get; init; }
+    public required ScreenRecorder Recorder { get; init; }
+    /// <summary>Starts recording the screen the pointer is on, or stops and saves.</summary>
+    public required Action ToggleRecording { get; init; }
     public required int ApiPort { get; init; }
     /// <summary>The process name of the app in front, kept current by the frame loop.</summary>
     public string FrontApp { get; set; } = "";

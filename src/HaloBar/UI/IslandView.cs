@@ -72,7 +72,7 @@ internal sealed class IslandView
         _files = new FilesPanel(hub, copyFiles);
         _panels =
         [
-            _home, _music, _files, new ShelfPanel(hub), _notices, _reminders, new AgentsPanel(hub, hub.Agents),
+            _home, _music, new WebPanel(hub), _files, new ShelfPanel(hub), _notices, _reminders, new AgentsPanel(hub, hub.Agents),
             new LauncherPanel(hub, hub.Launcher), new PhonePanel(hub, hub.Phone), new CallPanel(hub, hub.Camera), new ChatPanel(hub, hub.Chat),
             new ControlsPanel(hub, hub.Controls), new StylePanel(hub), new SettingsPanel(hub, applyLayout),
         ];
@@ -227,19 +227,26 @@ internal sealed class IslandView
     public void EndTyping()
     {
         if (_focused == null) return;
+        var field = _focused;
         _focused = null;
         TypingChanged?.Invoke(false);
+        field.Ended?.Invoke();
     }
 
     public void Char(char c)
     {
-        if (_focused == null || char.IsControl(c)) return;
+        if (_focused == null || char.IsControl(c) || _focused.CaptureKey != null) return;
         _focused.Insert(c.ToString());
     }
 
     public void Key(int vk)
     {
         if (_focused == null) return;
+        if (_focused.CaptureKey is { } capture)
+        {
+            if (capture(vk)) EndTyping();
+            return;
+        }
         switch (vk)
         {
             case 0x0D: // Enter

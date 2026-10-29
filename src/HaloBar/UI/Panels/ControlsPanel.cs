@@ -37,6 +37,7 @@ internal sealed class ControlsPanel(Hub hub, ControlsService controls) : Panel(h
             ("Night light", Icons.Moon, controls.NightLightOn, controls.ToggleNightLight),
             ("Sound", (c, x, y, s, col) => Icons.Speaker(c, x, y, s, col, Hub.Volume.Volume, Hub.Volume.Muted), !Hub.Volume.Muted, Hub.Volume.ToggleMute),
             ("Microphone", Hub.Microphone.Muted ? Icons.MicOff : Icons.Mic, Hub.Microphone.Available ? !Hub.Microphone.Muted : null, Hub.Microphone.ToggleMute),
+            ("Record", Icons.Record, Hub.Recorder.Recording, Hub.ToggleRecording),
         };
         const float gap = 8;
         var w = (body.Width - 36 - gap * (tiles.Length - 1)) / tiles.Length;

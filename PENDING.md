@@ -1,41 +1,49 @@
-# Pending work (updated 2026-10-26)
+# Pending work (updated 2026-10-29)
 
-Items marked done below (7, 8, 9) are committed on `main`. The repo is
-`github.com/keyurpatel22790/HaloBar` (private); push only when asked.
+Items 1–5 and 7–9 are committed on `main`. Item 6 (languages) is in progress.
+The repo is `github.com/keyurpatel22790/HaloBar` (private); push only when asked.
 
 ## To build, in this order
 
-1. **Hotkey editor** *(started; no code yet)*
-   - Move the fixed hotkey table in `Program.cs` into `settings.Hotkeys` (action + gesture text like `Ctrl+Alt+I`).
-   - Add a "Keys" section to the Settings panel: click a shortcut, then press the new keys.
-   - Backspace clears a shortcut and Esc cancels.
-   - Unregister all hotkeys while capturing, and handle `WM_SYSKEYDOWN` for Alt combinations.
-   - Re-register after each change and show which shortcuts are taken by another app.
-   - Add actions for screen recording and launcher slots 1–6.
+1. **Hotkey editor** *(done 2026-10-29, not committed)*
+   - Shortcuts live in `settings.Hotkeys` (action id → `Ctrl+Alt+I`; no entry = default, `""` = none). `HotkeyService` registers them and notes any another app holds.
+   - Settings › Keys: click a shortcut, press the new keys. Backspace clears, Esc cancels. All shortcuts are let go while choosing (Alt combinations arrive as `WM_SYSKEYDOWN`).
+   - A key given to one action is taken from any other action that had it. "Back to the usual shortcuts" resets all.
+   - New actions: next and previous track, launcher slots 1–6 (no keys by default). The tray menu and hints show the current keys.
+   - Screen recording has its own action too (Ctrl+Alt+V, from item 5).
+   - Not yet tried by hand: clicking a row and pressing keys on the island.
 
-2. **Codex and Gemini hooks**
-   - Codex: add `notify = [...]` to `~/.codex/config.toml`. Codex appends the event JSON as the last argument, so the hook posts it with `curl -d` to `/agent/codex`.
-   - Codex: also watch `~/.codex/sessions/**/rollout-*.jsonl` growing, to show it as working.
-   - Gemini: add hooks to `~/.gemini/settings.json`, piping stdin JSON to `/agent/gemini`. Check the hook format first.
-   - Same rules as Claude: a backup file, a marker, and Disconnect removes exactly what was added.
-   - Agents panel: one Connect/Disconnect chip per installed agent.
+2. **Codex and Gemini hooks** *(done 2026-10-29, not committed)*
+   - Agents › Connect lists Claude Code, Codex and Gemini CLI, each with Connect/Disconnect.
+   - Codex: hooks go in `~/.codex/hooks.json` (not `notify`: the Codex app already uses that for computer use, and Codex allows only one). They carry a `commandWindows` that uses `curl.exe`. **Codex runs a hook only after you trust it with `/hooks`.**
+   - Gemini CLI: hooks in `~/.gemini/settings.json` with Gemini's own event names; timeouts are in milliseconds.
+   - All three post to `/agent/<name>`, which answers `{}` so hook output is valid JSON. Backups and Disconnect work as for Claude.
+   - Checked live with test events for Codex and Gemini, and with this Claude Code session. Codex and Gemini themselves aren't connected yet (that edits their settings, so it's your call).
+   - Sessions silent for two hours now fade, so a crashed agent doesn't stay "Working".
 
-3. **Web panel**
-   - The island panel shows pinned sites (YouTube Music, Spotify, ChatGPT, Claude, plus custom ones).
-   - Clicking a site opens a drawer window under the island hosting WebView2: a normal HWND controller, the `Microsoft.Web.WebView2` package, and a profile kept in `%AppData%\HaloBar\WebView2` so logins persist.
-   - Hiding the drawer keeps music playing.
-   - Add `/web?site=` to the local API.
+3. **Web panel** *(done 2026-10-29, not committed)*
+   - A "Web" tab with pinned sites: YT Music, Spotify, ChatGPT, Claude, Gemini, WhatsApp by default. "+" adds one ("Notion notion.so"); Edit removes sites or closes an open page.
+   - Clicking a site opens it in a drawer under the island (WebView2 1.0.4258.31, profile in `%AppData%\HaloBar\WebView2` so logins stay). Clicking it again, clicking elsewhere or Esc hides it.
+   - Each site keeps its own page while hidden (green dot), so music keeps playing.
+   - Icons come from the site itself (touch icon, favicon, or the page's icon links), cached in `%AppData%\HaloBar\icons`. ChatGPT's blocks plain requests, so it shows a letter.
+   - Ctrl+Alt+W shows or hides the drawer; `/web?site=ChatGPT` (or an address, or `none`) in the local API.
+   - Checked: the panel, icons, and ChatGPT opening in the drawer via the API. Not yet checked by hand: hiding on click-away and Esc, whether YT Music shows on the music card, and signing in.
 
-4. **Desktop widgets**
-   - Pin any Home tile to the desktop. Each pinned tile is its own composition-surface window kept at the bottom of the z-order, draggable, with a right-click menu to unpin.
-   - Store pinned tiles in `settings.DesktopWidgets`.
-   - Pull the tile drawing out of `HomePanel` into a public `DrawTile`.
+4. **Desktop widgets** *(done 2026-10-29, not committed)*
+   - Home › Edit › Desktop: click a tile to pin it to the desktop, again for wide, again to unpin. Any of the 27 tiles works, including typing into the calculator or translator.
+   - Each widget is its own composition-surface window (`WidgetWindow`), kept at the bottom of the window stack, drawn with the same tile code on a card in the island's colours.
+   - Drag a widget anywhere (its position is saved in `settings.DesktopWidgets`); right-click for wide/narrow or "Remove from desktop". New ones line up on the right of the main screen.
+   - `/snapshot?panel=widget:date` saves a widget's picture; `home:desktop` opens the editor in Desktop mode.
+   - Pinned for you to try: Date and Weather (settings backed up as `settings.json.before-widgets`).
+   - Not yet checked by hand: dragging, the right-click menu, typing into a widget, and what Win+D (show desktop) does to them.
 
-5. **Screen recorder**
-   - Capture the monitor with Windows.Graphics.Capture, feed the frames to a MediaStreamSource, and encode with MediaTranscoder to MP4 (H.264).
-   - Optional microphone through WASAPI as PCM.
-   - Use a separate D3D11 device from the one drawing the island.
-   - Save to `Videos\HaloBar`, put the file on the shelf, show a REC activity, and add a hotkey.
+5. **Screen recorder** *(done 2026-10-29, not committed)*
+   - Records the screen the pointer is on to `Videos\HaloBar\HaloBar <date time>.mp4`: H.264 at 30 fps and the screen's size, plus AAC 48 kHz stereo of what the PC plays.
+   - `ScreenRecorder`: Windows.Graphics.Capture on its own D3D11 device, frames copied to memory and written with Media Foundation's sink writer (`Vortice.MediaFoundation`; hardware encoder when available). Silence is filled in while nothing plays, so sound stays in step.
+   - Start/stop: Ctrl+Alt+V, the Record switch on Controls, the tray menu, or `/record?action=start|stop|toggle`. A red "Recording" timer shows on the pill; the saved file goes on the shelf.
+   - Settings › Island › "Sound in screen recordings" turns sound off.
+   - Checked: a 5-second test recording plays as 1920×1080 H.264 + AAC, the right way up, correct colours.
+   - Not built: microphone (mixing it with system sound), choosing a window or area, and turning off Windows' yellow capture border (needs a newer Windows SDK target).
 
 6. **Languages**
    - Wrap every visible string in a lookup keyed by the English text.

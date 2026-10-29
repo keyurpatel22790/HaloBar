@@ -29,10 +29,14 @@ internal sealed class NotifyServer : IDisposable
     public event Action<string?, string?, bool?>? StyleRequested;
     /// <summary>Open the island on a panel by name ("home", "music"…), or "none" to close it.</summary>
     public event Action<string>? PanelRequested;
-    /// <summary>The JSON a Claude Code hook received.</summary>
-    public event Action<string>? ClaudeEvent;
+    /// <summary>(agent id, the JSON its hook received) from Claude Code, Codex or Gemini CLI.</summary>
+    public event Action<string, string>? HookEvent;
     /// <summary>(name, state, text, project) from any other agent or script.</summary>
     public event Action<string, string?, string?, string?>? AgentEvent;
+    /// <summary>"start", "stop" or "toggle" for the screen recorder.</summary>
+    public event Action<string>? RecordRequested;
+    /// <summary>A pinned site's name or an address to show in the web drawer, or "none" to hide it.</summary>
+    public event Action<string>? WebRequested;
     /// <summary>(PNG path, panel to open first or null).</summary>
     public event Action<string, string?>? SnapshotRequested;
 
@@ -91,6 +95,30 @@ internal sealed class NotifyServer : IDisposable
                 await ReplyAsync(stream, 200, "ok");
                 return;
             }
+            if (path == "/record")
+            {
+                var action = HttpUtility.ParseQueryString(uri.Query)["action"]?.ToLowerInvariant() ?? "toggle";
+                if (action is not ("start" or "stop" or "toggle"))
+                {
+                    await ReplyAsync(stream, 400, "use /record?action=start|stop|toggle");
+                    return;
+                }
+                RecordRequested?.Invoke(action);
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
+            if (path == "/web")
+            {
+                var site = HttpUtility.ParseQueryString(uri.Query)["site"];
+                if (string.IsNullOrWhiteSpace(site))
+                {
+                    await ReplyAsync(stream, 400, "use /web?site=<pinned name or address>, or /web?site=none to hide it");
+                    return;
+                }
+                WebRequested?.Invoke(site);
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
             if (path == "/snapshot")
             {
                 // Saves the next frames of the primary island to a PNG: for docs and checking
@@ -101,10 +129,11 @@ internal sealed class NotifyServer : IDisposable
                 await ReplyAsync(stream, 200, file);
                 return;
             }
-            if (path == "/agent/claude" && method == "POST")
+            if (path is "/agent/claude" or "/agent/codex" or "/agent/gemini" && method == "POST")
             {
-                ClaudeEvent?.Invoke(body);
-                await ReplyAsync(stream, 200, "ok");
+                HookEvent?.Invoke(path[7..], body);
+                // Agents read a hook's output as JSON; an empty object means "carry on".
+                await ReplyAsync(stream, 200, "{}");
                 return;
             }
             if (path == "/agent")

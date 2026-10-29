@@ -224,6 +224,7 @@ internal sealed class OverlayWindow : NativeWindow
                 CharTyped?.Invoke((char)(long)wParam);
                 return IntPtr.Zero;
             case WM_KEYDOWN:
+            case WM_SYSKEYDOWN: // Alt combinations and F10, for recording shortcuts
                 KeyPressed?.Invoke((int)(long)wParam);
                 return IntPtr.Zero;
             case WM_KILLFOCUS:

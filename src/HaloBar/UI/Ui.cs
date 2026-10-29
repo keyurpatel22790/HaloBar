@@ -12,6 +12,13 @@ internal sealed class TextField(string placeholder, Action<string> submit)
     public int Caret { get; set; }
     public string Placeholder { get; set; } = placeholder;
     public Action<string> Submit { get; } = submit;
+    /// <summary>
+    /// Set for a field that records a shortcut instead of text: it gets every key press (with
+    /// Alt combinations too) and returns true when it has what it needs and typing should end.
+    /// </summary>
+    public Func<int, bool>? CaptureKey { get; init; }
+    /// <summary>Called whenever typing into this field stops, however it stops.</summary>
+    public Action? Ended { get; init; }
 
     public void Insert(string s)
     {

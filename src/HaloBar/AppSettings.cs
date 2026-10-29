@@ -72,6 +72,8 @@ internal sealed class AppSettings
     public List<Services.TodoItem> Todos { get; set; } = [];
     public string TickerSymbols { get; set; } = "BTC, ETH, ^NSEI";
     public string PhotosFolder { get; set; } = "";
+    /// <summary>Home tiles pinned to the desktop as widgets.</summary>
+    public List<DesktopWidgetPlace> DesktopWidgets { get; set; } = [];
     public string NoteText { get; set; } = "";
     public string CountdownTitle { get; set; } = "";
     public DateTime? CountdownDate { get; set; }
@@ -94,6 +96,8 @@ internal sealed class AppSettings
     public List<Services.SavedShelfFile> ShelfFiles { get; set; } = [];
     /// <summary>Screenshots taken with the hotkey are kept on the file shelf.</summary>
     public bool CapturesToShelf { get; set; } = true;
+    /// <summary>Screen recordings include what the PC is playing.</summary>
+    public bool RecordSound { get; set; } = true;
     public bool ShowDownloadActivity { get; set; } = true;
     public bool ShowCallActivity { get; set; } = true;
 
@@ -119,6 +123,13 @@ internal sealed class AppSettings
     // Which panels the open island shows.
     public bool ChatPanel { get; set; }
     public bool LauncherPanel { get; set; } = true;
+    public bool WebPanel { get; set; } = true;
+    /// <summary>Sites on the web panel as "Name|https://…".</summary>
+    public List<string> WebSites { get; set; } =
+    [
+        "YT Music|https://music.youtube.com/", "Spotify|https://open.spotify.com/", "ChatGPT|https://chatgpt.com/",
+        "Claude|https://claude.ai/", "Gemini|https://gemini.google.com/", "WhatsApp|https://web.whatsapp.com/",
+    ];
     public bool RemindersPanel { get; set; } = true;
     public bool NotificationsPanel { get; set; } = true;
 
@@ -143,6 +154,8 @@ internal sealed class AppSettings
     public List<AppRule> AppRules { get; set; } = [];
     /// <summary>A strip with CPU, GPU, memory and time while a game is full screen.</summary>
     public bool GameStrip { get; set; } = true;
+    /// <summary>Shortcut per action id ("Ctrl+Alt+I"); no entry means the default, "" means none.</summary>
+    public Dictionary<string, string> Hotkeys { get; set; } = [];
     private static readonly object SaveGate = new();
 
     public static AppSettings Load()
@@ -181,6 +194,15 @@ internal sealed class AppSettings
             }
         }
     }
+}
+
+/// <summary>A Home tile pinned to the desktop: which, where (top-left, screen pixels) and how wide.</summary>
+internal sealed class DesktopWidgetPlace
+{
+    public string Tile { get; set; } = "";
+    public int X { get; set; }
+    public int Y { get; set; }
+    public bool Wide { get; set; }
 }
 
 /// <summary>What the island does while an app is in front: "hide", "slim" or "normal".</summary>

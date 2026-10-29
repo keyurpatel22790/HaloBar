@@ -52,7 +52,7 @@ internal sealed class FilesPanel(Hub hub, Action<string[]> copyFiles) : Panel(hu
         }
         if (files.Count == 0)
         {
-            ui.Empty(body, "Drop files on the island", "They wait here until you need them. Screenshots (Ctrl+Alt+F) land here too.");
+            ui.Empty(body, "Drop files on the island", Hub.Hotkeys.Text("screenshot") is { Length: > 0 } keys ? $"They wait here until you need them. Screenshots ({keys}) land here too." : "They wait here until you need them. Screenshots land here too.");
             return;
         }
 

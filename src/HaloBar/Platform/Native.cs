@@ -174,7 +174,7 @@ internal static class Native
     [DllImport("gdi32.dll")] public static extern IntPtr CreateBitmap(int width, int height, uint planes, uint bitCount, IntPtr bits);
     [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
 
-    public const uint WM_KILLFOCUS = 0x8, WM_KEYDOWN = 0x100, WM_CHAR = 0x102;
+    public const uint WM_KILLFOCUS = 0x8, WM_KEYDOWN = 0x100, WM_CHAR = 0x102, WM_SYSKEYDOWN = 0x104;
     public const int MA_ACTIVATE = 1;
     [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern short GetKeyState(int vk);

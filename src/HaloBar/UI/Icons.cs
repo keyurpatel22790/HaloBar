@@ -357,6 +357,18 @@ internal static class Icons
         c.DrawLine(cx, cy - 6 * s, cx, cy + 6 * s, p);
     }
 
+    /// <summary>A globe: the web panel.</summary>
+    public static void Globe(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        var s = size / 20f;
+        using var p = Stroke(color, 1.5f * s);
+        c.DrawCircle(cx, cy, 8 * s, p);
+        c.DrawOval(new SKRect(cx - 3.6f * s, cy - 8 * s, cx + 3.6f * s, cy + 8 * s), p);
+        c.DrawLine(cx - 8 * s, cy, cx + 8 * s, cy, p);
+        c.DrawLine(cx - 6.8f * s, cy - 4 * s, cx + 6.8f * s, cy - 4 * s, p);
+        c.DrawLine(cx - 6.8f * s, cy + 4 * s, cx + 6.8f * s, cy + 4 * s, p);
+    }
+
     /// <summary>A flag on a pole: a stopwatch lap.</summary>
     public static void Flag(SKCanvas c, float cx, float cy, float size, SKColor color)
     {
