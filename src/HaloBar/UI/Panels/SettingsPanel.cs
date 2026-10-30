@@ -178,6 +178,13 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Local API", $"Scripts post notices to 127.0.0.1:{s.NotifyPort}; takes effect after a restart", () => s.NotifyEndpoint, v => s.NotifyEndpoint = v),
             Toggle("Do not disturb", "Notifications, chat and agent pings wait in the list", () => s.DoNotDisturb, v => s.DoNotDisturb = v),
             Toggle("Quiet during focus", "Do not disturb while the focus timer runs", () => s.QuietDuringFocus, v => s.QuietDuringFocus = v),
+            Named("Block sites during focus", "Web windows won't open them while the timer runs",
+                [("instagram.com, facebook.com, x.com, reddit.com", "Social sites"),
+                 ("instagram.com, facebook.com, x.com, reddit.com, youtube.com", "Social sites and YouTube"), ("", "None")],
+                () => s.FocusBlockedSites, v => s.FocusBlockedSites = v),
+            Toggle("Watch the internet", "A ping every 20 seconds; says when it drops and comes back", () => s.NetworkWatch, v => s.NetworkWatch = v),
+            Named("Charge reminder", "Says when to unplug, for a longer-lasting battery", [("80", "At 80%"), ("90", "At 90%"), ("0", "Off")],
+                () => s.ChargeLimit.ToString(), v => s.ChargeLimit = int.Parse(v)),
             Toggle("Turn off Windows banners", "For apps shown here; they stay in the notification centre", () => s.QuietWindowsBanners, v =>
             {
                 s.QuietWindowsBanners = v;

@@ -166,3 +166,10 @@ HaloBar now has its own (UI/SettingsWindow.cs): a normal resizable window (dark 
 - OBS, the camera mirror, and the screenshot hotkey.
 - Phone share: it opens a port on your Wi-Fi and Windows asks about the firewall, and your network is currently Public.
 - More than one monitor.
+
+## Set aside (2026-10-31)
+
+- Live scores and flight status in the pill: football has a free keyless source; cricket sources are unofficial and can break.
+- AI quick ask in the island: needs the user's own API key, and each question costs a little.
+- Phone link (iPhone calls and messages): Apple gives Windows apps no direct access; would go through Windows Phone Link. Research first.
+- HaloBar's own screenshot editor: for now the "Screenshot saved" notice opens Paint.

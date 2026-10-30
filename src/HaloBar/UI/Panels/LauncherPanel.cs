@@ -58,7 +58,7 @@ internal sealed class LauncherPanel : Panel
         for (var i = 0; i < slots.Length; i++)
         {
             var x = body.Left + 18 + i * (w + gap);
-            var r = new SKRect(x, body.Top + 8, x + w, body.Bottom - 16);
+            var r = new SKRect(x, body.Top + 4, x + w, body.Bottom - 40);
             var app = slots[i];
             var hovered = ui.Hovering(r);
             ui.Fill(r, 18, Theme.Overlay(hovered ? (byte)28 : (byte)14));
@@ -80,6 +80,7 @@ internal sealed class LauncherPanel : Panel
             }
             else ui.Hit(r, () => Hub.Open(app.ShellPath));
         }
+        DrawLayouts(ui, body);
     }
 
     private void DrawPicker(Ui ui, SKRect body, int slot)
@@ -121,5 +122,33 @@ internal sealed class LauncherPanel : Panel
         ui.Canvas.Restore();
         if (matches.Count == 0)
             ui.Text("No app called that", area.MidX, area.MidY, area.Width, 12, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+    }
+
+    /// <summary>Window layouts along the bottom: click one to put the windows back; "Save layout" keeps the current one.</summary>
+    private void DrawLayouts(Ui ui, SKRect body)
+    {
+        var layouts = Hub.Layouts;
+        var y = body.Bottom - 18;
+        var x = body.Left + 18;
+        ui.Text("Layouts", x, y + 4, 70, 11, Theme.Weight.SemiBold, Theme.Dim);
+        x += ui.Measure("Layouts", 11, Theme.Weight.SemiBold) + 10;
+        foreach (var layout in layouts.Layouts)
+        {
+            if (x > body.Right - 200) break;
+            var chosen = layout;
+            var chip = ui.Chip(x, y, $"{layout.Name} · {layout.Windows.Count}", () =>
+            {
+                var placed = layouts.Restore(chosen);
+                var starting = chosen.Windows.Count - placed;
+                Hub.ShowHud(new Hud(HudIcon.Info, chosen.Name, Detail: starting > 0 ? $"{placed} placed · opening {starting}" : $"{placed} windows placed"));
+            }, size: 11);
+            if (_editing) ui.IconButton(chip.Right - 2, chip.Top + 2, 7, Icons.Close, () => layouts.Remove(chosen));
+            x = chip.Right + 6;
+        }
+        ui.Chip(x + 2, y, "Save layout", () =>
+        {
+            var name = layouts.SaveCurrent();
+            Hub.ShowHud(new Hud(HudIcon.Info, name ?? "No windows to save", Detail: name != null ? "Where your windows are now" : null));
+        }, accent: layouts.Layouts.Count == 0, size: 11);
     }
 }

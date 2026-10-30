@@ -30,6 +30,10 @@ internal sealed class Hub
     public required DownloadService Downloads { get; init; }
     public required TickerService Ticker { get; init; }
     public required ControlsService Controls { get; init; }
+    public required WifiService Wifi { get; init; }
+    public required ProfileService Profiles { get; init; }
+    public required NetworkHealth Network { get; init; }
+    public required LayoutService Layouts { get; init; }
     public required AgentService Agents { get; init; }
     public required LauncherService Launcher { get; init; }
     public required ObsService Obs { get; init; }

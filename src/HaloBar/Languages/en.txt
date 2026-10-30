@@ -15,9 +15,10 @@
 33E28130-4E1E-4676-835A-98395C3BC3BB
 374DE290-123F-4565-9164-39C4925E467B
 5 km to mi
+7FA06C40-B8F6-4C7E-8556-E8C33A12E54D
 A Dynamic Island for Windows.
 A camera mirror and microphone switch
-A little cat beside the pill: click it to pet it; it naps when you're away. Add the Pet tile to feed it
+A ping every 20 seconds; says when it drops and comes back
 A slim strip instead of hiding while a game is full screen
 A soft shadow under text, so it reads on busy backgrounds; Auto uses it on see-through surfaces
 A thin line so it never covers browser tabs
@@ -36,7 +37,9 @@ Add a to-do
 Add an export folder
 Add an unpacked extension
 Add app
+Add device
 Add symbols
+Ads and trackers on the drawer's sites, YouTube and YouTube Music included; for pages opened from now on ({0} blocked so far)
 Agent
 Agents
 Air quality
@@ -52,6 +55,8 @@ App rules
 Apps
 Apps that use the camera or microphone show up here
 Arabic
+At 80%
+At 90%
 Auckland
 Aurora
 Auto
@@ -61,6 +66,8 @@ B8C0BD9F-ED24-455C-83E6-D5390C4FE8C4
 BEGIN:VEVENT
 BTC, ETH, AAPL, ^NSEI
 BTC, ETH, ^NSEI
+Back
+Back online
 Back to the usual shortcuts
 Background
 Background opacity
@@ -80,11 +87,15 @@ Berlin
 Between the cover and the bars; the pill grows a little for it
 Bigger
 Black
-Black cat
+Block ads
+Block sites during focus
+Blocked
 Blue
 Bluetooth
 Bluetooth device
 Bluetooth devices
+Bluetooth is off
+Bluetooth · {0}
 Blush
 Break
 Break over
@@ -114,11 +125,14 @@ Caps Lock off
 Caps Lock on
 Caps, Num and Scroll Lock
 Channel
+Charge reminder
+Charged to {0}%
 Charging
 Chat
 Chat overlay
 Chat pop-ups
 ChatGPT|https://chatgpt.com/
+Check that {0} shows on the device, then accept there
 Check your look
 Checking…
 Chicago
@@ -140,8 +154,10 @@ Click + to fix the path
 Click a row to convert from it · rates from the ECB
 Click above and type
 Click for next city
+Click the box and type the password, then press Enter. Windows saves it with the network.
 Click to add, again to make it wide (or narrow), again to remove.
 Click to choose one
+Click to mark it up
 Click to pin, again for wide, again to unpin. Drag widgets; right-click one for more.
 Click to set a city
 Click to turn Night light off
@@ -158,7 +174,9 @@ Connect
 Connected
 Connected and disconnected
 Connected: {0}. Start or continue a session and it shows up here.
-Content
+Connecting to {0}…
+Connecting {0}…
+Connect…
 Content-Length
 Controls
 Convert
@@ -166,13 +184,19 @@ Cookie
 Copied
 Copied text on the phone page
 Copied · on the shelf
+Copy text from the screen
 Copy text, files or pictures and they'll wait here
 Corners
+Couldn't connect to {0}
+Couldn't connect to {0} ({1})
 Couldn't edit {0}'s settings
+Couldn't forget {0} ({1})
 Couldn't look that up
 Couldn't open a port
 Couldn't open the page
+Couldn't pair with {0} ({1})
 Couldn't record
+Couldn't switch {0}
 Couldn't translate: {0}
 Count
 Count down to…
@@ -181,18 +205,22 @@ Counter
 Counting…
 Ctrl
 Ctrl++
+Ctrl+Alt+B
 Ctrl+Alt+C
 Ctrl+Alt+E
 Ctrl+Alt+F
 Ctrl+Alt+H
 Ctrl+Alt+I
+Ctrl+Alt+K
 Ctrl+Alt+M
 Ctrl+Alt+O
 Ctrl+Alt+P
+Ctrl+Alt+Q
 Ctrl+Alt+R
 Ctrl+Alt+T
 Ctrl+Alt+V
 Ctrl+Alt+W
+Ctrl+Alt+X
 Currency
 DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7
 Daily
@@ -208,6 +236,7 @@ Did you mean “{0}”?
 DirectUIHWND
 Disconnect
 Disconnected
+Disconnecting {0}…
 Distance from top
 Do not disturb
 Do not disturb off
@@ -244,7 +273,6 @@ Excel
 Exit
 Explorer
 Export done
-Feed
 Files
 Files and exports
 Finding the stream…
@@ -262,6 +290,8 @@ Folder not found
 Folder picker
 For apps shown here; they stay in the notification centre
 Forest
+Forget
+Found
 French
 From square to fully round
 From your phone
@@ -273,7 +303,6 @@ GPU {0} {1}
 Game strip
 Gemini|https://gemini.google.com/
 German
-Ginger cat
 Git
 Glass blur
 Glass lens
@@ -285,14 +314,13 @@ Graphite
 Green
 Green and orange dots on the pill
 Grep
-Grey cat
 Gujarati
 HUDs
 HaloBar Settings
+HaloBar tells you when it's back
 HaloBar {0}
 HaloBar {0} starting
 HaloBar's folder
-Happy
 Hazardous
 Health {0}
 Here
@@ -301,6 +329,7 @@ Hide from screenshots and sharing
 Hide the Windows volume pop-up
 Hide the island
 Hide when something is full screen
+Hides on click
 Higher contrast text
 Highlights, switches and links
 Hindi
@@ -315,6 +344,7 @@ In a call · {0}
 Input
 Insert
 Integrations
+Internet is down
 Interrupt
 Is git installed?
 Island
@@ -338,6 +368,8 @@ Last quarter
 Last tab
 Launcher icons
 Lavender
+Layout {0}
+Layouts
 Left
 Lilac
 Listing apps…
@@ -349,10 +381,11 @@ Local API: 127.0.0.1:{0}
 Location
 Log
 London
-Lonely
 Look and place
 Look up a word
+Looking for devices in pairing mode…
 Looking for lyrics…
+Looking for networks…
 Looking on the web
 Looking up…
 Low battery
@@ -371,7 +404,7 @@ Meeting countdown
 Megabytes as downloads show it, or megabits as speed tests do
 Memory: {0}
 Mic
-Mic  ·  {0}
+Mic · {0}
 Microphone in screen recordings
 Microphone in use
 Microphone mute
@@ -400,12 +433,14 @@ Mute
 Mute microphone
 Mute the microphone
 Muted
+Muted, sped up and skipped the moment YouTube allows
 NICK justinfan{0}
 Name
 Name and address, e.g. Notion notion.so
 Names keep the colour each person picked
 NativeHWNDHost
 Navy
+Nearby devices in pairing mode
 Needs the WebView2 runtime from Microsoft
 Needs you
 Network
@@ -424,6 +459,8 @@ Next up
 Night light
 Night light is on
 Night light warning
+No QR code found
+No Wi-Fi adapter
 No agents yet
 No app called that
 No apps yet
@@ -431,9 +468,13 @@ No battery
 No camera found
 No containers running
 No entry for “{0}”
+No internet
 No login needed to read. Press Enter to join.
 No lyrics for this one
+No matches
+No networks found
 No notifications yet
+No paired devices
 No photos here
 No pinned snippets
 No place called “{0}”
@@ -441,10 +482,13 @@ No place yet
 No prices found
 No reminder
 No reminders
+No text found
 No tiles
+No windows to save
 None
 Not Found
 Not a git repo
+Not connected
 Not connected to a network
 Not here
 Not live right now
@@ -490,6 +534,7 @@ Once
 One island per screen
 One line each instead of cards
 Open
+Open Controls (Wi-Fi, Bluetooth, sound)
 Open app in slot 1
 Open app in slot 2
 Open app in slot 3
@@ -511,15 +556,19 @@ Outlook
 Output
 PASS SCHMOOPIIE
 PM2.5
+Pair
+Pairing with {0} was cancelled
+Pairing with {0}…
+Pairing…
 Panels
 Paris
 Partly cloudy
+Password
 Paste its iCal (ICS) link
 Pause
 Pause focus timer
 Paused
 Peach
-Pet
 Phone
 Phone share shows what you last copied
 Photo and video details
@@ -536,7 +585,6 @@ Pinned
 Pinned sites in a drawer under the island
 Pinned snippets always stay
 Plain
-Play
 Play or pause
 Play something in Spotify, a browser or Media Player
 Plugged in
@@ -545,15 +593,20 @@ Plum
 Portuguese
 Press keys…
 Press the new keys · Backspace clears · Esc cancels
+Press the ✕ to see everything again
 Previous track
 Price alert
 Prices unavailable
 Privacy dots
 Processes
+Profile
 Progman
 Punjabi
 Pure black
 Purple
+Put a device in pairing mode, then Add device
+QR code
+QR code copied
 Quiet
 Quiet during focus
 RAM {0} GB
@@ -593,6 +646,8 @@ Repeats {0}
 Replace the Windows volume pop-up
 Repo folders, separated by ;
 Reports what it's doing once connected
+Rescan
+Rescan, or check that Wi-Fi is on
 Reset
 Results for “{0}”
 Right
@@ -606,15 +661,25 @@ Same Wi-Fi as this PC. Download what's on the shelf, or send photos and files he
 Same as Windows
 Same time
 San Francisco
+Save layout
+Saved
+Saved as it is now
+Says when to unplug, for a longer-lasting battery
+Scan a QR code
+Scan a QR code on the screen
 Scan with your phone's camera
 Screen time
 Screenshot saved
 Scripts post notices to 127.0.0.1:{0}; takes effect after a restart
 Scroll Lock off
 Scroll Lock on
+Search
 Search apps
 Search settings
+Search the clipboard history
 Searching
+Searching… put your device in pairing mode
+Secured
 See Other
 Send files to and from your phone with a QR code
 Seoul
@@ -637,13 +702,15 @@ Showers
 Singapore
 Six launcher slots
 Size
+Skip ads that get through
 Slim over maximised windows
 Slot {0} is empty
 Small bars beside CPU and GPU
 Smaller
 Snow
 Snow showers
-Snowy cat
+Social sites
+Social sites and YouTube
 Soft grey
 Something to do
 Song title in the closed island
@@ -651,7 +718,8 @@ Sound
 Sound in screen recordings
 Space
 Spanish
-Speaker  ·  {0}
+Speaker · {0}
+Speed test
 Spotify|https://open.spotify.com/
 Start focus timer
 Start or pause the focus timer
@@ -660,6 +728,7 @@ Starting camera…
 Starting…
 Stats
 Stats and game strip
+Stays open ✓
 Stop
 Stop recording
 Stopped
@@ -677,6 +746,7 @@ Sunset {0}
 Surface
 Surface and colour
 Surface's own
+Switch to the next profile
 Sydney
 Symbols, comma-separated
 São Paulo
@@ -692,8 +762,10 @@ Teal
 Teams
 Telugu
 Terminal
+Testing…
 Text
 Text colour
+Text copied
 Text in Settings; Same as Windows follows Windows' Text size
 Text shadow
 Text size
@@ -720,6 +792,7 @@ Time format
 Timer paused
 To-do
 Today
+Today {0} min
 Tokyo
 Tomorrow
 Translate from
@@ -727,6 +800,8 @@ Translate to
 Translating…
 Translator
 Trip 20 Dec
+Try a larger area
+Turn it on with the switch above
 Turn mirror off
 Turn mirror on
 Turn off Windows banners
@@ -739,9 +814,11 @@ Unhealthy
 Unhealthy for some
 Unit converter
 Unmute microphone
+Unplug to keep the battery healthy
 Until the list is full
 Up
 Up for
+Update
 Uploads go to {0}
 Urdu
 Use OBS's own settings
@@ -754,12 +831,15 @@ Waiting for messages…
 Waning crescent
 Waning gibbous
 Warm white
+Watch the internet
 Waxing crescent
 Waxing gibbous
 Weather
 Weather unavailable
 Web
+Web drawer
 Web extensions
+Web windows won't open them while the timer runs
 Weekdays
 Weekly
 What and when
@@ -767,24 +847,32 @@ What are you counting?
 What the PC plays; recordings go to Videos\HaloBar
 WhatsApp|https://web.whatsapp.com/
 When Photoshop, Lightroom, Premiere, Resolve, GIMP, Krita or Blender is in front; one click turns it off
+Where your windows are now
 White
 Wi-Fi
+Wi-Fi is off
+Wi-Fi · {0}
 Win
 Windows 10 NativeHWNDHost
 Windows 11 XAML host {0}x{1} at ({2},{3})
 Windows accent
 Windows blocked the camera for desktop apps
+Windows didn't allow HaloBar to use Wi-Fi
 Windows language
 Windows notifications: {0}
+Windows only lets apps disconnect headphones and speakers: use {0} itself or Settings
+Windows refused to switch {0}
 Windows says {0}
 Windows' estimate, on the Battery tile
 Word
 WorkerW
 Working
 Working with a helper
+Working…
 World clock
 Write
 Writing {0}
+Wrong password
 X-GOOGLE-CONFERENCE
 YT Music|https://music.youtube.com/
 Yellow
@@ -802,12 +890,15 @@ days ago
 days to go
 e.g. Ahmedabad
 e.g. “Trip 20 Dec”
+en-US
 every {0} min
 ft²
 gu-IN
 h1{font-size:20px}a.f{display:flex;justify-content:space-between;padding:14px;margin:8px 0;border-radius:14px;background:#1c1c1f;color:#f5f5f7;text-decoration:none}
 hi-IN
 in {0} min
+instagram.com, facebook.com, x.com, reddit.com
+instagram.com, facebook.com, x.com, reddit.com, youtube.com
 km mi ft · kg lb · °C °F · L gal · GB MB · USD INR
 km · kg · °C · GB · USD
 km²
@@ -841,7 +932,11 @@ zh-TW
 {0} TB
 {0} Very high
 {0} changed
+{0} connected
 {0} connected. {1}
+{0} didn't answer
+{0} didn't answer. Is it on and nearby?
+{0} didn't connect. Is it on and nearby?
 {0} disconnected
 {0} files
 {0} files on the shelf to download.
@@ -850,15 +945,23 @@ zh-TW
 {0} free of {1}
 {0} hit a problem
 {0} hit an error
+{0} is held by Airplane mode or a hardware switch
 {0} is {1}
+{0} lines
 {0} min on screen
 {0} ms
+{0} needs a PIN typed in: pair it from Windows Settings
 {0} needs you
+{0} placed · opening {1}
+{0} profile
 {0} sees warmer colours than the file
 {0} since a break
 {0} this month
 {0} weeks {1} days
+{0} windows placed
 {0} would get in the way of typing; add Ctrl, Alt or Win
+{0} · HaloBar
+{0} · copied; click to open
 {0} · on the shelf; click to open
 {0} · only this app
 {0}% · plug in soon

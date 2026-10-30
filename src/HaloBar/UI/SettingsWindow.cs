@@ -44,7 +44,9 @@ internal sealed class SettingsWindow : NativeWindow
     private SKCanvas? _canvas;
     private SKBitmap? _canvasBitmap;
     private TextField? _focused;
-    private readonly ScreenCopyBackdrop _glass;
+    // Windows' live blur behind the window; the screen copy only where that isn't available.
+    private readonly AcrylicBackdrop? _backdrop;
+    private readonly ScreenCopyBackdrop? _glass;
     private SKImage? _behind;
     private SKPoint? _cursor;
     private int _page;
@@ -68,11 +70,20 @@ internal sealed class SettingsWindow : NativeWindow
         SetWindowTextW(Handle, "HaloBar Settings");
         var dark = 1;
         DwmSetWindowAttribute(Handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref dark, sizeof(int));
-        // Glass: the screen behind the window, copied, blurred and drawn under the pages (Windows'
-        // own Acrylic is faint over dark windows and turns off when the window isn't focused).
-        // The window stays out of screen captures so the copy never contains itself.
-        SetWindowDisplayAffinity(Handle, 0x11 /* WDA_EXCLUDEFROMCAPTURE */);
-        _glass = new ScreenCopyBackdrop(openMs: 100, smallMs: 100);
+        // Glass: what's behind the window, blurred live by Windows' compositor (a host-backdrop
+        // brush, as the desktop widgets use: it keeps up with video and animated wallpapers and
+        // stays on when the window isn't focused), with the pages' tint drawn over it.
+        // An ordinary app window only shows a host backdrop once it asks DWM for one.
+        var hostBackdrop = 1;
+        DwmSetWindowAttribute(Handle, 17 /* DWMWA_USE_HOSTBACKDROPBRUSH */, ref hostBackdrop, sizeof(int));
+        _backdrop = AcrylicBackdrop.Create(Handle);
+        if (_backdrop == null)
+        {
+            // Fallback: the screen behind copied and blurred ten times a second. The window stays
+            // out of screen captures so the copy never contains itself.
+            SetWindowDisplayAffinity(Handle, 0x11 /* WDA_EXCLUDEFROMCAPTURE */);
+            _glass = new ScreenCopyBackdrop(openMs: 100, smallMs: 100);
+        }
 
         // Centred on the main screen, 920×660 DIPs.
         var primary = Monitors.All().FirstOrDefault(m => m.IsPrimary) ?? Monitors.All()[0];
@@ -116,7 +127,7 @@ internal sealed class SettingsWindow : NativeWindow
         GetClientRect(Handle, out var client);
         var origin = new POINT();
         ClientToScreen(Handle, ref origin);
-        var picture = _glass.Behind(new SKRectI(origin.X, origin.Y, origin.X + client.Width, origin.Y + client.Height), 100, paceMs: 100);
+        var picture = _glass?.Behind(new SKRectI(origin.X, origin.Y, origin.X + client.Width, origin.Y + client.Height), 100, paceMs: 100);
         if (!ReferenceEquals(picture, _behind))
         {
             _behind = picture;
@@ -166,13 +177,20 @@ internal sealed class SettingsWindow : NativeWindow
             // Glass: the blurred screen behind the window, then a tint in the island's colours thick
             // enough to read on (plain colour until the first copy arrives).
             var dark = Luminance(theme.Text) > 0.5;
-            canvas.Clear(dark ? new SKColor(0x16, 0x16, 0x1A) : new SKColor(0xF2, 0xF2, 0xF5));
+            if (_backdrop != null)
+            {
+                canvas.Clear(SKColors.Transparent);
+                _backdrop.Update(true, 0, 0, _surface.Width, _surface.Height, 0);
+            }
+            else canvas.Clear(dark ? new SKColor(0x16, 0x16, 0x1A) : new SKColor(0xF2, 0xF2, 0xF5));
             if (_behind is { } behind)
             {
                 using var glass = new SKPaint { IsAntialias = false };
                 canvas.DrawImage(behind, new SKRect(0, 0, size.Width, size.Height), new SKSamplingOptions(SKFilterMode.Linear), glass);
             }
-            using (var tint = new SKPaint { Color = dark ? new SKColor(0x14, 0x14, 0x18, 0xA8) : new SKColor(0xF6, 0xF6, 0xF8, 0xB0) })
+            // Windows' blur is plainer than the copied one (no colour boost), so it gets a lighter tint.
+            byte veil = _backdrop != null ? (byte)(dark ? 0x90 : 0x98) : (byte)(dark ? 0xA8 : 0xB0);
+            using (var tint = new SKPaint { Color = dark ? new SKColor(0x14, 0x14, 0x18, veil) : new SKColor(0xF6, 0xF6, 0xF8, veil) })
                 canvas.DrawRect(0, 0, size.Width, size.Height, tint);
             using (var colour = new SKPaint { Color = theme.Background.WithAlpha((byte)Math.Min(40, (int)theme.Background.Alpha)) })
                 canvas.DrawRect(0, 0, size.Width, size.Height, colour);
@@ -475,7 +493,8 @@ internal sealed class SettingsWindow : NativeWindow
 
     public override void Dispose()
     {
-        _glass.Dispose();
+        _glass?.Dispose();
+        _backdrop?.Dispose();
         DropCanvas();
         _surface.Dispose();
         base.Dispose();

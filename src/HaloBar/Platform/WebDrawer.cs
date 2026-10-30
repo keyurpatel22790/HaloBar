@@ -81,6 +81,16 @@ internal sealed class WebDrawer : IDisposable
     public event Action? Changed;
 
     internal bool KeepOpen => _settings.WebDrawerKeepOpen;
+    /// <summary>True while a focus session runs; the sites in FocusBlockedSites wait till it ends.</summary>
+    public Func<bool> Focusing { get; set; } = () => false;
+
+    internal bool BlockedNow(string url)
+    {
+        if (!Focusing() || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")) return false;
+        var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
+        return _settings.FocusBlockedSites.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(site => host.Equals(site, StringComparison.OrdinalIgnoreCase) || host.EndsWith("." + site, StringComparison.OrdinalIgnoreCase));
+    }
     internal AppSettings Settings => _settings;
     internal MonitorInfo? Monitor => _monitor();
     internal void OpenOutside(string url) => _openOutside(url);
@@ -301,6 +311,14 @@ internal sealed class SiteWindow : NativeWindow
         web.Settings.AreDefaultContextMenusEnabled = true;
         // Back and Forward light up as the page's history changes.
         web.HistoryChanged += (_, _) => InvalidateRect(Handle, IntPtr.Zero, false);
+        web.NavigationStarting += (_, e) =>
+        {
+            if (!_drawer.BlockedNow(e.Uri)) return;
+            e.Cancel = true;
+            web.NavigateToString("<html><body style=\"background:#181818;color:#ddd;font:16px 'Segoe UI';display:grid;place-items:center;height:90vh\">"
+                + "<div style=\"text-align:center\"><div style=\"font-size:22px;font-weight:600\">Focus time</div>"
+                + "<p>This site opens again when the focus timer ends.</p></div></body></html>");
+        };
         // Links meant for a new window: sign-in pages stay here, anything else opens in the browser.
         web.NewWindowRequested += (_, e) =>
         {

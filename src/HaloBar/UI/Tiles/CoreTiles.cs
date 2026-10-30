@@ -121,6 +121,9 @@ internal sealed class TimerTile(Hub hub) : Tile(hub)
             _ => "Focus timer",
         };
         ui.Text(label, cx, cy - 13, 70, 9.5f, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Center);
+        var s = Hub.Settings;
+        if (s.FocusDay == DateTime.Now.ToString("yyyy-MM-dd") && s.FocusMinutesToday > 0)
+            ui.Text($"Today {s.FocusMinutesToday} min", t.Right - 8, t.Top + 14, t.Width / 2, 9.5f, Theme.Weight.SemiBold, Theme.Accent, SKTextAlign.Right);
 
         var by = t.Bottom - 22;
         if (timer.Phase == TimerPhase.Idle)

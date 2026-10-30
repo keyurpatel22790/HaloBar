@@ -75,10 +75,14 @@ internal sealed record Hud(HudIcon Icon, string Text, float? Level = null, strin
 /// Something going on that deserves the resting pill: a running timer, a meeting about to start,
 /// a recording. The highest-priority activity replaces the clock or the song on the pill.
 /// </summary>
-internal sealed record Activity(int Priority, HudIcon Icon, string Text, SKColor Color, float? Progress = null, string? Right = null)
+internal sealed record Activity(int Priority, HudIcon Icon, string Text, SKColor Color, float? Progress = null, string? Right = null,
+    string? ButtonLabel = null, Action? Button = null)
 {
+    /// <summary>The pill's button (a meeting's Join), drawn at the right end; clicking it doesn't open the island.</summary>
+    private float ButtonWidth(Ui ui) => Button == null || ButtonLabel == null ? 0 : ui.Measure(ButtonLabel, 11.5f) + 22 + 8;
+
     public float Width(Ui ui) =>
-        Math.Clamp(58 + ui.Measure(Text, 12.5f, Theme.Weight.SemiBold) + (Right == null ? 0 : 12 + ui.Measure(Right, 12.5f, Theme.Weight.SemiBold)), 170, 360);
+        Math.Clamp(58 + ui.Measure(Text, 12.5f, Theme.Weight.SemiBold) + (Right == null ? 0 : 12 + ui.Measure(Right, 12.5f, Theme.Weight.SemiBold)) + ButtonWidth(ui), 170, 420);
 
     public void Draw(Ui ui, SKRect r)
     {
@@ -86,8 +90,12 @@ internal sealed record Activity(int Priority, HudIcon Icon, string Text, SKColor
         if (Progress is { } p) ui.Arc(r.Left + 19, r.MidY, 9, p, Color, 2.4f);
         else new Hud(Icon, Text).DrawIcon(ui.Canvas, r.Left + 19, r.MidY, 15, Color);
         if (Progress != null) new Hud(Icon, Text).DrawIcon(ui.Canvas, r.Left + 19, r.MidY, 9, Color);
+        var button = ButtonWidth(ui);
+        if (Button != null && ButtonLabel != null)
+            ui.Chip(r.Right - 8 - (button - 8), r.MidY, ButtonLabel, Button, accent: true, size: 11.5f);
+        var right = r.Right - button;
         var rightWidth = Right == null ? 0 : ui.Measure(Right, 12.5f, Theme.Weight.SemiBold) + 12;
-        ui.Text(Text, r.Left + 36, r.MidY + 4.5f, r.Width - 50 - rightWidth, 12.5f, Theme.Weight.SemiBold, t.Text);
-        if (Right != null) ui.Text(Right, r.Right - 14, r.MidY + 4.5f, rightWidth, 12.5f, Theme.Weight.SemiBold, Color, SKTextAlign.Right);
+        ui.Text(Text, r.Left + 36, r.MidY + 4.5f, right - r.Left - 50 - rightWidth, 12.5f, Theme.Weight.SemiBold, t.Text);
+        if (Right != null) ui.Text(Right, right - 14, r.MidY + 4.5f, rightWidth, 12.5f, Theme.Weight.SemiBold, Color, SKTextAlign.Right);
     }
 }
