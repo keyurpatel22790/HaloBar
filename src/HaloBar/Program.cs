@@ -175,6 +175,7 @@ internal sealed class IslandApp : IDisposable
     public IslandApp(AppSettings settings)
     {
         _settings = settings;
+        Lang.Use(settings.Language);
         // The CPU rasteriser only needs its caches for glyphs and a few small images.
         SKGraphics.SetResourceCacheTotalByteLimit(4 * 1024 * 1024);
         SKGraphics.SetFontCacheLimit(2 * 1024 * 1024);

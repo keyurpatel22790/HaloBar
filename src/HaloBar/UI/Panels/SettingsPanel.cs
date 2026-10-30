@@ -90,6 +90,13 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
                 else Hub.Banners.RestoreAll();
             }),
             new("Start with Windows", null, null, () => StartupRegistration.Set(!StartupRegistration.IsEnabled), () => StartupRegistration.IsEnabled),
+            new("Language", s.Language == "auto" ? Lang.Name(Lang.Current) : null, () => Lang.Name(s.Language), () =>
+            {
+                var i = Array.FindIndex(Lang.Available, a => a.Code == s.Language);
+                s.Language = Lang.Available[(i + 1) % Lang.Available.Length].Code;
+                s.Save();
+                Lang.Use(s.Language);
+            }),
         ]);
         yield return ("Keys", [.. KeyRows()]);
     }
@@ -228,7 +235,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
         var y = body.Top + 16 - (float)_scroll.Value;
         foreach (var (section, rows) in Sections())
         {
-            ui.Text(section.ToUpperInvariant(), body.Left + 20, y, 200, 10.5f, Theme.Weight.SemiBold, Theme.Accent);
+            ui.Text(Lang.T(section).ToUpper(System.Globalization.CultureInfo.CurrentCulture), body.Left + 20, y, 200, 10.5f, Theme.Weight.SemiBold, Theme.Accent);
             y += RowHeight * 0.8f;
             foreach (var row in rows)
             {

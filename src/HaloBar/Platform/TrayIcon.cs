@@ -89,6 +89,13 @@ internal sealed class TrayIcon : IDisposable
         if (chosen > 0) commands[chosen - 1].OnClick();
     }
 
+    /// <summary>"Open island\tCtrl+Alt+I": the label in the current language, the keys as they are.</summary>
+    private static string MenuText(string text)
+    {
+        var tab = text.IndexOf('\t');
+        return tab < 0 ? UI.Lang.T(text) : UI.Lang.T(text[..tab]) + text[tab..];
+    }
+
     /// <summary>Builds a menu, numbering every clickable item across submenus.</summary>
     private static IntPtr Build(IReadOnlyList<TrayMenuItem> items, List<TrayMenuItem> commands)
     {
@@ -98,12 +105,12 @@ internal sealed class TrayIcon : IDisposable
             if (ReferenceEquals(item, TrayMenuItem.Separator))
                 AppendMenuW(menu, MF_SEPARATOR, 0, null);
             else if (item.Children is { } children)
-                AppendMenuW(menu, MF_POPUP, (nuint)Build(children, commands), item.Text);
+                AppendMenuW(menu, MF_POPUP, (nuint)Build(children, commands), MenuText(item.Text));
             else
             {
                 commands.Add(item);
                 AppendMenuW(menu, MF_STRING | (item.Checked ? MF_CHECKED : 0) | (item.Enabled ? 0 : MF_GRAYED),
-                    (nuint)commands.Count, item.Text);
+                    (nuint)commands.Count, MenuText(item.Text));
             }
         }
         return menu;
