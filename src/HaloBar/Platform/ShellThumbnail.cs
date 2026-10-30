@@ -34,21 +34,30 @@ internal static class ShellThumbnail
         }
     }
 
-    /// <summary>Copies a 32-bit top-down DIB section out of an HBITMAP.</summary>
-    private static SKImage? FromHBitmap(IntPtr hbitmap)
+    /// <summary>
+    /// Copies a 32-bit HBITMAP out top-down. GDI does the copy (GetDIBits) rather than reading the
+    /// section's memory: shell thumbnails are labelled bottom-up but stored top-down, while icons
+    /// really are bottom-up, so only GDI's own view of the bitmap gets both the right way up.
+    /// </summary>
+    private static unsafe SKImage? FromHBitmap(IntPtr hbitmap)
     {
-        if (GetObjectW(hbitmap, Marshal.SizeOf<BITMAP>(), out var bm) == 0 || bm.bmBitsPixel != 32 || bm.bmBits == IntPtr.Zero) return null;
+        if (GetObjectW(hbitmap, Marshal.SizeOf<BITMAP>(), out var bm) == 0 || bm.bmBitsPixel != 32) return null;
         var info = new SKImageInfo(bm.bmWidth, Math.Abs(bm.bmHeight), SKColorType.Bgra8888, SKAlphaType.Premul);
         using var bitmap = new SKBitmap(info);
-        var rowBytes = bm.bmWidthBytes;
-        var dest = bitmap.GetPixels();
-        // A positive height means a bottom-up DIB; flip it while copying.
-        var bottomUp = bm.bmHeight > 0;
-        for (var y = 0; y < info.Height; y++)
+        var header = new BITMAPINFOHEADER
         {
-            var src = bm.bmBits + (bottomUp ? info.Height - 1 - y : y) * rowBytes;
-            unsafe { Buffer.MemoryCopy((void*)src, (void*)(dest + y * bitmap.RowBytes), bitmap.RowBytes, info.Width * 4); }
+            biSize = Marshal.SizeOf<BITMAPINFOHEADER>(),
+            biWidth = info.Width,
+            biHeight = -info.Height, // negative: top-down
+            biPlanes = 1,
+            biBitCount = 32,
+        };
+        var dc = Native.GetDC(IntPtr.Zero);
+        try
+        {
+            if (GetDIBits(dc, hbitmap, 0, (uint)info.Height, bitmap.GetPixels(), ref header, 0 /* DIB_RGB_COLORS */) != info.Height) return null;
         }
+        finally { Native.ReleaseDC(IntPtr.Zero, dc); }
         bitmap.SetImmutable();
         return SKImage.FromBitmap(bitmap);
     }
@@ -72,6 +81,17 @@ internal static class ShellThumbnail
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
     private static extern int SHCreateItemFromParsingName(string path, IntPtr bindCtx, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object item);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER
+    {
+        public int biSize, biWidth, biHeight;
+        public ushort biPlanes, biBitCount;
+        public int biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant;
+    }
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetDIBits(IntPtr dc, IntPtr bitmap, uint start, uint lines, IntPtr bits, ref BITMAPINFOHEADER info, uint usage);
 
     [DllImport("gdi32.dll")]
     private static extern int GetObjectW(IntPtr h, int size, out BITMAP bm);

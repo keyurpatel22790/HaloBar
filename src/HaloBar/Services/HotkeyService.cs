@@ -105,6 +105,7 @@ internal sealed class HotkeyService(AppSettings settings, IntPtr hwnd, Action? s
         new("record", "Record the screen (again to stop)", "Ctrl+Alt+V"),
         new("obs", "OBS: start or stop recording", "Ctrl+Alt+R"),
         new("web", "Show or hide the web drawer", "Ctrl+Alt+W"),
+        new("dnd", "Do not disturb on or off", ""),
         new("launch1", "Open app in slot 1", ""), new("launch2", "Open app in slot 2", ""), new("launch3", "Open app in slot 3", ""),
         new("launch4", "Open app in slot 4", ""), new("launch5", "Open app in slot 5", ""), new("launch6", "Open app in slot 6", ""),
     ];

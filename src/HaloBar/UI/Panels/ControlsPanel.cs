@@ -14,6 +14,7 @@ internal sealed class ControlsPanel(Hub hub, ControlsService controls) : Panel(h
     private DateTime _devicesReadAt;
 
     public override string Title => "Controls";
+    public override bool Available => Hub.Settings.ControlsPanel;
     public override void Icon(SKCanvas c, float cx, float cy, float size, SKColor color) => Icons.Sliders(c, cx, cy, size, color);
     public override double FrameInterval => 0.5;
 
@@ -36,8 +37,9 @@ internal sealed class ControlsPanel(Hub hub, ControlsService controls) : Panel(h
             ("Bluetooth", Icons.Bluetooth, controls.BluetoothOn, controls.ToggleBluetooth),
             ("Night light", Icons.Moon, controls.NightLightOn, controls.ToggleNightLight),
             ("Sound", (c, x, y, s, col) => Icons.Speaker(c, x, y, s, col, Hub.Volume.Volume, Hub.Volume.Muted), !Hub.Volume.Muted, Hub.Volume.ToggleMute),
-            ("Microphone", Hub.Microphone.Muted ? Icons.MicOff : Icons.Mic, Hub.Microphone.Available ? !Hub.Microphone.Muted : null, Hub.Microphone.ToggleMute),
+            ("Mic", Hub.Microphone.Muted ? Icons.MicOff : Icons.Mic, Hub.Microphone.Available ? !Hub.Microphone.Muted : null, Hub.Microphone.ToggleMute),
             ("Record", Icons.Record, Hub.Recorder.Recording, Hub.ToggleRecording),
+            ("Quiet", Icons.Bell, Hub.Settings.DoNotDisturb, Hub.ToggleDoNotDisturb),
         };
         const float gap = 8;
         var w = (body.Width - 36 - gap * (tiles.Length - 1)) / tiles.Length;

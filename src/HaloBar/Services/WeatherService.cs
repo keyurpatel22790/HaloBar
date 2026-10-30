@@ -66,7 +66,7 @@ internal sealed class WeatherService : IDisposable
     public WeatherService(AppSettings settings)
     {
         _settings = settings;
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("HaloBar/0.4");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("HaloBar/0.5");
     }
 
     public void Start() => _ = Task.Run(async () =>

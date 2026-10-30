@@ -6,8 +6,12 @@ namespace HaloBar.Services;
 /// Which apps are using the camera or microphone right now. Windows records every access in the
 /// capability consent store; an entry whose LastUsedTimeStop is 0 is still in use.
 /// </summary>
-internal sealed class PrivacyService : IDisposable
+internal sealed class PrivacyService(Func<IReadOnlyCollection<string>> ignored) : IDisposable
 {
+    /// <summary>Every app seen using the camera or microphone since HaloBar started, for Settings.</summary>
+    public IReadOnlyCollection<string> Seen => _seen;
+    private readonly SortedSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
+
     private const string Store = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore";
     private readonly CancellationTokenSource _cts = new();
     private readonly string _self = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "HaloBar");
@@ -68,7 +72,9 @@ internal sealed class PrivacyService : IDisposable
             else if (IsActive(key)) apps.Add(FriendlyPackage(name));
         }
         apps.Remove(_self);
-        return [.. apps];
+        lock (_seen) _seen.UnionWith(apps);
+        var skip = ignored();
+        return [.. apps.Where(a => !skip.Contains(a, StringComparer.OrdinalIgnoreCase))];
     }
 
     private static bool IsActive(RegistryKey? key) =>

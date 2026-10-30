@@ -24,7 +24,7 @@ internal sealed partial class LyricsService : IDisposable
     public string Status { get; private set; } = "";
     public event Action? Changed;
 
-    public LyricsService() => _http.DefaultRequestHeaders.UserAgent.ParseAdd("HaloBar/0.4 (https://github.com/)");
+    public LyricsService() => _http.DefaultRequestHeaders.UserAgent.ParseAdd("HaloBar/0.5 (https://github.com/)");
 
     /// <summary>Asks for the lyrics of a song; a no-op when it is the song already asked for.</summary>
     public void Request(string title, string artist, string album, TimeSpan duration)

@@ -1,3 +1,6 @@
+// NAudio 3 marks WasapiCapture obsolete in favour of its new recorder builder; the classic
+// capture works, matches the rest of HaloBar, and is what this recorder was checked with.
+#pragma warning disable CS0618
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
@@ -16,8 +19,8 @@ namespace HaloBar.Services;
 /// Records a screen to an MP4 (H.264 video, AAC sound). Frames come from Windows.Graphics.Capture
 /// on a D3D11 device of its own (not the one drawing the island), are copied to memory, and go to
 /// Media Foundation's sink writer, which picks the GPU encoder when there is one. Sound is what
-/// the PC is playing (WASAPI loopback); gaps while nothing plays are filled with silence so the
-/// sound stays in step with the picture.
+/// the PC is playing (WASAPI loopback), the microphone, or both mixed; a pump writes it every
+/// 20 ms and pads what hasn't arrived with silence, so sound stays in step with the picture.
 /// </summary>
 internal sealed class ScreenRecorder : IDisposable
 {
@@ -31,12 +34,13 @@ internal sealed class ScreenRecorder : IDisposable
     private Direct3D11CaptureFramePool? _pool;
     private GraphicsCaptureSession? _session;
     private IMFSinkWriter? _writer;
-    private WasapiLoopbackCapture? _loopback;
+    private readonly List<SoundSource> _sources = [];
+    private int _pumping;
     private int _videoStream, _audioStream = -1;
     private int _width, _height, _audioRate, _audioChannels;
     private long _audioFrames, _lastVideoTicks = -1;
     private readonly Stopwatch _clock = new();
-    private Timer? _silence;
+    private Timer? _pump;
 
     public bool Recording { get; private set; }
     public DateTime Since { get; private set; }
@@ -44,7 +48,7 @@ internal sealed class ScreenRecorder : IDisposable
     public event Action? Changed;
 
     /// <summary>Starts recording <paramref name="monitor"/> into a new file in Videos\HaloBar. Returns an error, or null.</summary>
-    public string? Start(IntPtr monitor, bool sound)
+    public string? Start(IntPtr monitor, bool sound, bool microphone = false)
     {
         if (Recording) return null;
         try
@@ -58,7 +62,7 @@ internal sealed class ScreenRecorder : IDisposable
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "HaloBar");
             Directory.CreateDirectory(folder);
             File = Path.Combine(folder, $"HaloBar {DateTime.Now:yyyy-MM-dd HH-mm-ss}.mp4");
-            CreateWriter(sound);
+            CreateWriter(sound, microphone);
 
             _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_winrtDevice!, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _item.Size);
             _pool.FrameArrived += OnFrame;
@@ -68,8 +72,8 @@ internal sealed class ScreenRecorder : IDisposable
             _writer!.BeginWriting();
             _clock.Restart();
             _session.StartCapture();
-            _loopback?.StartRecording();
-            if (_loopback != null) _silence = new Timer(_ => FillSilence(), null, 100, 100);
+            foreach (var source in _sources) source.Capture.StartRecording();
+            if (_audioStream >= 0) _pump = new Timer(_ => Pump(), null, 20, 20);
             Recording = true;
             Since = DateTime.Now;
             Log.Write($"Recorder: recording {_width}x{_height} to {File}");
@@ -91,9 +95,9 @@ internal sealed class ScreenRecorder : IDisposable
         Recording = false;
         _session?.Dispose();
         _session = null;
-        _loopback?.StopRecording();
-        _silence?.Dispose();
-        _silence = null;
+        foreach (var source in _sources) source.Capture.StopRecording();
+        _pump?.Dispose();
+        _pump = null;
         string? saved = null;
         lock (_gate)
         {
@@ -187,31 +191,74 @@ internal sealed class ScreenRecorder : IDisposable
 
     // ───────────────────────────── sound ─────────────────────────────
 
-    private void OnSound(object? sender, WaveInEventArgs e)
+    /// <summary>
+    /// One input (loopback or microphone): its captures become stereo float at the recording's
+    /// rate and wait in a queue for the pump to mix them.
+    /// </summary>
+    private sealed class SoundSource(WasapiCapture capture, int rate, float gain)
     {
-        if (!Recording || e.BytesRecorded == 0) return;
-        var format = _loopback!.WaveFormat;
-        var frames = e.BytesRecorded / format.BlockAlign;
-        var pcm = new short[frames * 2];
-        // Loopback hands over 32-bit float; the AAC encoder takes 16-bit stereo.
-        for (var i = 0; i < frames; i++)
-        for (var c = 0; c < 2; c++)
+        private readonly Queue<float> _queue = new();
+        public WasapiCapture Capture { get; } = capture;
+
+        public void Add(WaveInEventArgs e)
         {
-            var channel = Math.Min(c, format.Channels - 1);
-            var value = BitConverter.ToSingle(e.Buffer, i * format.BlockAlign + channel * 4);
-            pcm[i * 2 + c] = (short)Math.Clamp(value * 32767f, short.MinValue, short.MaxValue);
+            var format = Capture.WaveFormat;
+            var frames = e.BytesRecorded / format.BlockAlign;
+            if (frames == 0) return;
+            var isFloat = format.BitsPerSample == 32;
+            float Read(int frame, int channel)
+            {
+                var at = frame * format.BlockAlign + Math.Min(channel, format.Channels - 1) * (format.BitsPerSample / 8);
+                return isFloat ? BitConverter.ToSingle(e.Buffer, at) : BitConverter.ToInt16(e.Buffer, at) / 32768f;
+            }
+            // Linear resampling when the device runs at another rate (a 44.1 kHz mic into 48 kHz).
+            var step = (double)format.SampleRate / rate;
+            var outFrames = (int)(frames / step);
+            lock (_queue)
+            {
+                for (var i = 0; i < outFrames; i++)
+                {
+                    var pos = i * step;
+                    var a = (int)pos;
+                    var b = Math.Min(a + 1, frames - 1);
+                    var t = (float)(pos - a);
+                    for (var c = 0; c < 2; c++) _queue.Enqueue((Read(a, c) * (1 - t) + Read(b, c) * t) * gain);
+                }
+                // More than a second waiting means the pump fell behind; drop the oldest to catch up.
+                while (_queue.Count > rate * 2) _queue.Dequeue();
+            }
         }
-        WriteSound(pcm, frames);
+
+        /// <summary>Adds up to <paramref name="frames"/> waiting frames into <paramref name="mix"/>.</summary>
+        public void MixInto(float[] mix, int frames)
+        {
+            lock (_queue)
+            {
+                var n = Math.Min(frames * 2, _queue.Count);
+                for (var i = 0; i < n; i++) mix[i] += _queue.Dequeue();
+            }
+        }
     }
 
-    /// <summary>Loopback sends nothing while the PC is silent; write silence up to now so sound and picture stay in step.</summary>
-    private void FillSilence()
+    /// <summary>Writes the sound up to about 100 ms ago: what each source sent, mixed, and silence for the rest.</summary>
+    private void Pump()
     {
-        if (!Recording) return;
-        var expected = (long)(_clock.Elapsed.TotalSeconds * _audioRate);
-        var behind = expected - Interlocked.Read(ref _audioFrames) - _audioRate / 20; // allow 50 ms for data in flight
-        if (behind <= 0) return;
-        WriteSound(new short[behind * 2], (int)behind);
+        if (!Recording || Interlocked.Exchange(ref _pumping, 1) == 1) return;
+        try
+        {
+            var due = (long)(_clock.Elapsed.TotalSeconds * _audioRate) - Interlocked.Read(ref _audioFrames) - _audioRate / 10;
+            if (due <= 0) return;
+            var frames = (int)Math.Min(due, _audioRate);
+            var mix = new float[frames * 2];
+            foreach (var source in _sources) source.MixInto(mix, frames);
+            var pcm = new short[mix.Length];
+            for (var i = 0; i < mix.Length; i++) pcm[i] = (short)Math.Clamp(mix[i] * 32767f, short.MinValue, short.MaxValue);
+            WriteSound(pcm, frames);
+        }
+        finally
+        {
+            Volatile.Write(ref _pumping, 0);
+        }
     }
 
     private void WriteSound(short[] pcm, int frames)
@@ -243,7 +290,7 @@ internal sealed class ScreenRecorder : IDisposable
 
     // ───────────────────────────── file ─────────────────────────────
 
-    private void CreateWriter(bool sound)
+    private void CreateWriter(bool sound, bool microphone)
     {
         using var attributes = MediaFactory.MFCreateAttributes(2);
         attributes.Set(SinkWriterAttributeKeys.ReadwriteEnableHardwareTransforms, 1u);
@@ -272,16 +319,25 @@ internal sealed class ScreenRecorder : IDisposable
             input.Set(MediaTypeAttributeKeys.DefaultStride, (uint)(_width * 4)); // top-down rows
             _writer.SetInputMediaType(_videoStream, input, null);
         }
-        if (!sound) return;
+        if (!sound && !microphone) return;
 
         try
         {
-            _loopback = new WasapiLoopbackCapture();
-            _audioRate = _loopback.WaveFormat.SampleRate is 44100 or 48000 ? _loopback.WaveFormat.SampleRate : 48000;
-            if (_loopback.WaveFormat.Encoding != WaveFormatEncoding.IeeeFloat && _loopback.WaveFormat.Encoding != WaveFormatEncoding.Extensible
-                || _loopback.WaveFormat.BitsPerSample != 32 || _audioRate != _loopback.WaveFormat.SampleRate)
-                throw new NotSupportedException($"sound format {_loopback.WaveFormat}");
+            // The PC's own output rate when it is one AAC takes; the other inputs are resampled to it.
+            using (var probe = new MMDeviceEnumerator())
+            {
+                using var client = probe.GetDefaultAudioEndpoint(NAudio.CoreAudioApi.DataFlow.Render, NAudio.CoreAudioApi.Role.Multimedia).CreateAudioClient();
+                var mix = client.MixFormat.SampleRate;
+                _audioRate = mix is 44100 or 48000 ? mix : 48000;
+            }
             _audioChannels = 2;
+            if (sound) AddSource(new WasapiLoopbackCapture(), 1f);
+            if (microphone)
+            {
+                try { AddSource(new WasapiCapture(), 1.4f); } // voices come in quieter than the PC's own sound
+                catch (Exception ex) { Log.Write($"Recorder: no microphone: {ex.Message}"); }
+            }
+            if (_sources.Count == 0) throw new InvalidOperationException("no sound input");
             using (var output = MediaFactory.MFCreateMediaType())
             {
                 output.Set(MediaTypeAttributeKeys.MajorType, MediaTypeGuids.Audio);
@@ -303,16 +359,24 @@ internal sealed class ScreenRecorder : IDisposable
                 input.Set(MediaTypeAttributeKeys.AudioAvgBytesPerSecond, (uint)(_audioRate * _audioChannels * 2));
                 _writer.SetInputMediaType(_audioStream, input, null);
             }
-            _loopback.DataAvailable += OnSound;
         }
         catch (Exception ex)
         {
             // A video without sound beats no video.
             Log.Write($"Recorder: recording without sound: {ex.Message}");
-            _loopback?.Dispose();
-            _loopback = null;
+            foreach (var source in _sources) source.Capture.Dispose();
+            _sources.Clear();
             _audioStream = -1;
         }
+    }
+
+    private void AddSource(WasapiCapture capture, float gain)
+    {
+        var format = capture.WaveFormat;
+        if (format.BitsPerSample is not (32 or 16)) throw new NotSupportedException($"sound format {format}");
+        var source = new SoundSource(capture, _audioRate, gain);
+        capture.DataAvailable += (_, e) => { if (Recording) source.Add(e); };
+        _sources.Add(source);
     }
 
     private void Cleanup(bool deleteFile)
@@ -321,12 +385,13 @@ internal sealed class ScreenRecorder : IDisposable
         {
             _session?.Dispose();
             _pool?.Dispose();
-            _loopback?.Dispose();
+            foreach (var source in _sources) source.Capture.Dispose();
+            _sources.Clear();
             _writer?.Dispose();
             _staging?.Dispose();
             _context?.Dispose();
             _device?.Dispose();
-            (_session, _pool, _loopback, _writer, _staging, _context, _device, _winrtDevice, _item) = (null, null, null, null, null, null, null, null, null);
+            (_session, _pool, _writer, _staging, _context, _device, _winrtDevice, _item) = (null, null, null, null, null, null, null, null);
             _audioStream = -1;
             _audioFrames = 0;
             _lastVideoTicks = -1;

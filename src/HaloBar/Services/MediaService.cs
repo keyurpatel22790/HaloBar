@@ -38,7 +38,7 @@ internal sealed record MediaSnapshot(
 /// play/pause/skip/seek. All WinRT callbacks arrive on thread-pool threads; the
 /// latest state is published as an immutable snapshot.
 /// </summary>
-internal sealed class MediaService : IDisposable
+internal sealed class MediaService(AppSettings settings) : IDisposable
 {
     /// <summary>Artwork is drawn at most 120 DIPs; at 2x scaling that needs 240 pixels.</summary>
     private const int ArtworkSize = 256;
@@ -52,6 +52,30 @@ internal sealed class MediaService : IDisposable
 
     public MediaSnapshot? Snapshot { get; private set; }
     public event Action? Changed;
+
+    /// <summary>Apps with a media session right now, as (app id, name).</summary>
+    public IReadOnlyList<(string Id, string Name)> Sources
+    {
+        get
+        {
+            try
+            {
+                return _manager == null ? [] : [.. _manager.GetSessions().Select(s => (s.SourceAppUserModelId, FriendlyAppName(s.SourceAppUserModelId))).Distinct()];
+            }
+            catch (Exception) { return []; }
+        }
+    }
+
+    /// <summary>Shows only <paramref name="id"/>'s music from now on, or any app's when it is "".</summary>
+    public void Choose(string id)
+    {
+        settings.MusicSource = id;
+        settings.Save();
+        Reattach();
+    }
+
+    /// <summary>Picks again after the source settings change.</summary>
+    public void Refresh() => Reattach();
 
     public async Task StartAsync()
     {
@@ -90,22 +114,43 @@ internal sealed class MediaService : IDisposable
         _ = RefreshAsync();
     }
 
-    /// <summary>The current session, unless it is paused while another one plays.</summary>
+    /// <summary>
+    /// The chosen app's session if one is chosen and open; otherwise the current session, unless it
+    /// is paused while another one plays. Apps switched off in Settings are never shown.
+    /// </summary>
     private MediaSession? ChooseSession()
     {
         if (_manager == null) return null;
         try
         {
+            var sessions = _manager.GetSessions().ToList();
+            Remember(sessions);
+            var allowed = sessions.Where(s => !settings.MusicHidden.Contains(s.SourceAppUserModelId)).ToList();
+            if (settings.MusicSource.Length > 0 && allowed.FirstOrDefault(s => s.SourceAppUserModelId == settings.MusicSource) is { } pinned)
+                return pinned;
             var current = _manager.GetCurrentSession();
-            if (current != null && IsPlaying(current)) return current;
-            var playing = _manager.GetSessions().FirstOrDefault(IsPlaying);
-            return playing ?? current;
+            if (current != null && allowed.Any(s => s.SourceAppUserModelId == current.SourceAppUserModelId))
+            {
+                if (IsPlaying(current)) return current;
+            }
+            else current = null;
+            var playing = allowed.FirstOrDefault(IsPlaying);
+            return playing ?? current ?? allowed.FirstOrDefault();
         }
         catch (Exception ex)
         {
             Log.Write($"Media: listing sessions failed: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>Keeps a list of every app seen playing, for the switches in Settings.</summary>
+    private void Remember(IEnumerable<MediaSession> sessions)
+    {
+        var added = false;
+        foreach (var s in sessions)
+            added |= settings.MusicSeen.TryAdd(s.SourceAppUserModelId, FriendlyAppName(s.SourceAppUserModelId));
+        if (added) settings.Save();
     }
 
     private static bool IsPlaying(MediaSession s)

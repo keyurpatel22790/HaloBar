@@ -16,6 +16,7 @@ internal sealed class FilesPanel(Hub hub, Action<string[]> copyFiles) : Panel(hu
     public bool DropHover { get; set; }
 
     public override string Title => "Files";
+    public override bool Available => Hub.Settings.ShelfEnabled;
     public override void Icon(SKCanvas c, float cx, float cy, float size, SKColor color) => Icons.File(c, cx, cy, size, color);
     public override double FrameInterval => _scroll.Settled && !DropHover ? 1 : 1 / 30.0;
 
@@ -83,6 +84,7 @@ internal sealed class FilesPanel(Hub hub, Action<string[]> copyFiles) : Panel(hu
 
             var chosen = file;
             ui.Hit(SKRect.Intersect(card, area), () => Hub.Open(chosen.Path));
+            ui.DragFiles(SKRect.Intersect(card, area), () => [chosen.Path]);
             if (hovered)
             {
                 // Small actions over the top of the card.

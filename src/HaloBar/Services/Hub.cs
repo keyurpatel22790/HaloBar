@@ -43,12 +43,20 @@ internal sealed class Hub
     public required ScreenRecorder Recorder { get; init; }
     /// <summary>Starts recording the screen the pointer is on, or stops and saves.</summary>
     public required Action ToggleRecording { get; init; }
+    /// <summary>True while pop-ups should wait: Do not disturb is on, or a focus session runs.</summary>
+    public required Func<bool> Quiet { get; init; }
+    /// <summary>Switches Do not disturb and says so on the pill.</summary>
+    public required Action ToggleDoNotDisturb { get; init; }
     public required int ApiPort { get; init; }
     /// <summary>The process name of the app in front, kept current by the frame loop.</summary>
     public string FrontApp { get; set; } = "";
 
     /// <summary>Shows a HUD on every island.</summary>
     public required Action<Hud> ShowHud { get; init; }
+    /// <summary>Runs an action on the window thread.</summary>
+    public required Action<Action> RunOnUi { get; init; }
+    /// <summary>Opens the Settings window, on a page or section if named.</summary>
+    public required Action<string?> OpenSettings { get; init; }
     /// <summary>Opens a link or file with its default app.</summary>
     public required Action<string> Open { get; init; }
     /// <summary>Shows a file selected in Explorer.</summary>

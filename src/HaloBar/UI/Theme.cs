@@ -28,12 +28,20 @@ internal sealed class Theme : IDisposable
     /// <summary>The look moves by itself, so it needs frames even when nothing else changes.</summary>
     public bool Animated => Surface.Effect == SurfaceEffect.Aurora || AccentChoice.Source == AccentSource.Rainbow;
 
-    public SKColor Top => _top;
-    public SKColor Background => _bottom;
+    public SKColor Top => Frosted(_top);
+    public SKColor Background => Frosted(_bottom);
+
+    /// <summary>
+    /// On a see-through surface the tint over the blurred desktop gets thinner (clearer) or
+    /// thicker (frostier) with Glass blur; Windows' own blur strength is fixed.
+    /// </summary>
+    private SKColor Frosted(SKColor c) => Surface.SeeThrough
+        ? c.WithAlpha((byte)Math.Clamp(c.Alpha * (0.35f + Prefs.GlassFrost * 1.3f), 0, 255))
+        : c;
     public SKColor Edge => _edge;
     public SKColor Text => _text;
-    public SKColor Dim => _text.WithAlpha(0x99);
-    public SKColor Faint => _text.WithAlpha(0x33);
+    public SKColor Dim => _text.WithAlpha(Prefs.HighContrast ? (byte)0xD0 : (byte)0x99);
+    public SKColor Faint => _text.WithAlpha(Prefs.HighContrast ? (byte)0x80 : (byte)0x33);
     public SKColor Accent => _accent;
     /// <summary>Text or icons drawn on top of the accent colour.</summary>
     public SKColor OnAccent => Luminance(_accent) > 0.55 ? new SKColor(0x16, 0x16, 0x18) : SKColors.White;
@@ -114,8 +122,43 @@ internal sealed class Theme : IDisposable
             AccentSource.Rainbow => SKColor.FromHsv((float)(Time * 45 % 360), 65, 100),
             _ => AccentChoice.Color,
         };
-        return (top, bottom, edge, s.Text, accent);
+        return (top, bottom, edge, TextFor(s), accent);
     }
+
+    /// <summary>
+    /// How bright the screen behind the glass is (0–1), from the picture the lens reads; null when
+    /// no surface reads it. Auto text turns dark over a bright background and light over a dark one.
+    /// </summary>
+    public double? BehindBrightness { get; set; }
+    private bool _darkOverGlass;
+    private DateTime? _flipSince;
+
+    /// <summary>Text is dark on light (so washes and shadows should be light).</summary>
+    public bool DarkText => Luminance(_text) < 0.5;
+
+    private SKColor TextFor(SurfaceLook s)
+    {
+        switch (Prefs.TextColour)
+        {
+            case "white": return new SKColor(0xF5, 0xF5, 0xF7);
+            case "black": return new SKColor(0x16, 0x16, 0x1A);
+            case var hex when hex.StartsWith('#') && SKColor.TryParse(hex, out var custom): return custom;
+        }
+        if (s.Effect != SurfaceEffect.Lens || BehindBrightness is not { } light) return s.Text;
+        // A gap between the two switch points, and the background has to stay on the other side
+        // for over a second: a window passing behind, or the island opening, doesn't flip the text.
+        var wants = light > 0.62 ? true : light < 0.48 ? false : _darkOverGlass;
+        if (wants == _darkOverGlass) _flipSince = null;
+        else if ((_flipSince ??= DateTime.Now) < DateTime.Now.AddSeconds(-1.2))
+        {
+            _darkOverGlass = wants;
+            _flipSince = null;
+        }
+        return _darkOverGlass ? new SKColor(0x14, 0x14, 0x18) : new SKColor(0xF7, 0xF7, 0xFA);
+    }
+
+    /// <summary>A soft shadow under text helps it read on see-through and busy backgrounds.</summary>
+    public bool TextShadows => Prefs.TextShadow switch { "on" => true, "off" => false, _ => Surface.SeeThrough };
 
     /// <summary>The surface fill: a top-to-bottom gradient, or null when the surface is one flat colour.</summary>
     public SKShader? BackgroundShader(SKRect r) => _top == _bottom ? null
@@ -124,12 +167,38 @@ internal sealed class Theme : IDisposable
     /// <summary>Aurora's edge: a ring of colours that slowly turns. Null for other surfaces.</summary>
     public SKShader? EdgeShader(SKRect r)
     {
+        if (Surface.Effect == SurfaceEffect.Lens)
+        {
+            // Bright where light hits the top, fading down the sides, a faint reflection at the bottom.
+            return SKShader.CreateLinearGradient(new SKPoint(r.MidX, r.Top), new SKPoint(r.MidX, r.Bottom),
+                [SKColors.White.WithAlpha(150), SKColors.White.WithAlpha(34), SKColors.White.WithAlpha(22), SKColors.White.WithAlpha(80)],
+                [0, 0.35f, 0.7f, 1], SKShaderTileMode.Clamp);
+        }
         if (Surface.Effect != SurfaceEffect.Aurora) return null;
         var hue = (float)(Time * 14 % 360);
         var colors = Enumerable.Range(0, 5).Select(i => SKColor.FromHsv((hue + i * 72) % 360, 60, 100).WithAlpha(170)).ToArray();
         colors[^1] = colors[0];
         var rotate = SKMatrix.CreateRotationDegrees((float)(Time * 40 % 360), r.MidX, r.MidY);
         return SKShader.CreateSweepGradient(new SKPoint(r.MidX, r.MidY), colors, null, SKShaderTileMode.Clamp, 0, 360, rotate);
+    }
+
+    /// <summary>The glass lens's sheen: soft light across the top of the shape, inside it.</summary>
+    public void Sheen(SKCanvas canvas, SKPath shape, SKRect r)
+    {
+        if (Surface.Effect != SurfaceEffect.Lens) return;
+        canvas.Save();
+        canvas.ClipPath(shape, SKClipOperation.Intersect, true);
+        var depth = Math.Min(r.Height * 0.55f, 46);
+        using var sheen = SKShader.CreateLinearGradient(new SKPoint(r.MidX, r.Top), new SKPoint(r.MidX, r.Top + depth),
+            [SKColors.White.WithAlpha(40), SKColors.White.WithAlpha(0)], SKShaderTileMode.Clamp);
+        using var paint = new SKPaint { Shader = sheen, IsAntialias = true };
+        canvas.DrawRect(new SKRect(r.Left, r.Top, r.Right, r.Top + depth), paint);
+        // A soft glint near the top-left, like light caught in curved glass.
+        using var glint = SKShader.CreateRadialGradient(new SKPoint(r.Left + r.Width * 0.18f, r.Top + 4), Math.Max(24, r.Width * 0.22f),
+            [SKColors.White.WithAlpha(36), SKColors.White.WithAlpha(0)], SKShaderTileMode.Clamp);
+        paint.Shader = glint;
+        canvas.DrawRect(r, paint);
+        canvas.Restore();
     }
 
     private static SKColor Glide(SKColor from, SKColor to, float k) => new(
@@ -196,6 +265,19 @@ internal sealed class Theme : IDisposable
         SKTextAlign align = SKTextAlign.Left)
     {
         if (string.IsNullOrEmpty(text) || maxWidth <= 4) return;
+        // The shadow: the same text a touch lower in the opposite tone, faint, under the real one.
+        if (TextShadows && color.Alpha > 60)
+        {
+            var light = Luminance(color) > 0.5;
+            var shade = light ? SKColors.Black.WithAlpha((byte)(color.Alpha * 0.45f)) : SKColors.White.WithAlpha((byte)(color.Alpha * 0.5f));
+            DrawLineOnce(canvas, text, x, baseline + Math.Max(1, font.Size / 14), maxWidth, font, shade, align);
+        }
+        DrawLineOnce(canvas, text, x, baseline, maxWidth, font, color, align);
+    }
+
+    private void DrawLineOnce(SKCanvas canvas, string text, float x, float baseline, float maxWidth, SKFont font, SKColor color,
+        SKTextAlign align)
+    {
         text = Visible(text).ReplaceLineEndings(" ");
         var fitted = Fit(text, maxWidth, font);
         using var paint = new SKPaint { Color = color, IsAntialias = true };

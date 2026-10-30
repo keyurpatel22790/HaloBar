@@ -16,7 +16,7 @@ internal static class WebTools
     private static HttpClient CreateClient()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("HaloBar/0.4");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("HaloBar/0.5");
         return http;
     }
 
@@ -101,6 +101,26 @@ internal static class WebTools
     public sealed record Meaning(string Word, string Phonetic, string PartOfSpeech, string Definition, string? Example);
 
     /// <summary>The first few meanings of an English word, or none when it isn't found.</summary>
+    /// <summary>The closest real word to a misspelling ("defination" → "definition"), or null.</summary>
+    public static async Task<string?> SpellingAsync(string word)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await Http.GetStringAsync($"https://api.datamuse.com/sug?s={Uri.EscapeDataString(word.Trim().ToLowerInvariant())}&max=5"));
+            foreach (var s in doc.RootElement.EnumerateArray())
+            {
+                var w = s.GetProperty("word").GetString();
+                // Datamuse lists the word itself first when it has seen it; a correction differs.
+                if (w != null && !w.Equals(word.Trim(), StringComparison.OrdinalIgnoreCase) && !w.Contains(' ')) return w;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            Log.Write($"Spelling: {ex.Message}");
+        }
+        return null;
+    }
+
     public static async Task<IReadOnlyList<Meaning>> DefineAsync(string word)
     {
         using var response = await Http.GetAsync($"https://api.dictionaryapi.dev/api/v2/entries/en/{Uri.EscapeDataString(word.Trim().ToLowerInvariant())}");

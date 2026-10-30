@@ -195,6 +195,9 @@ internal sealed class TranslateTile(Hub hub) : TypingTile(hub, "Type to translat
                 (_result, _resultFor) = ($"Couldn't translate: {ex.Message}", key);
             }
             finally { _busy = false; }
+            // Typed on while that was out: translate what's there now.
+            if (Input.Text.Trim() != text) Settled(Input.Text.Trim());
+            Changed();
         });
     }
 
@@ -284,6 +287,7 @@ internal sealed class DictionaryTile(Hub hub) : TypingTile(hub, "Look up a word"
 {
     private IReadOnlyList<WebTools.Meaning> _meanings = [];
     private string _status = "", _for = "";
+    private string? _suggestion;
     private volatile bool _busy;
 
     public override string Id => "dictionary";
@@ -300,6 +304,8 @@ internal sealed class DictionaryTile(Hub hub) : TypingTile(hub, "Look up a word"
             try
             {
                 var found = await WebTools.DefineAsync(text);
+                // A misspelling: offer the closest word ("defination" → "definition").
+                _suggestion = found.Count == 0 ? await WebTools.SpellingAsync(text) : null;
                 (_meanings, _status, _for) = (found, found.Count == 0 ? $"No entry for “{text}”" : "", text);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException)
@@ -307,6 +313,8 @@ internal sealed class DictionaryTile(Hub hub) : TypingTile(hub, "Look up a word"
                 (_meanings, _status, _for) = ([], "Dictionary unavailable", text);
             }
             finally { _busy = false; }
+            if (Input.Text.Trim() is var now && now != text && now.Length > 0 && !now.Contains(' ')) Settled(now);
+            Changed();
         });
     }
 
@@ -318,6 +326,19 @@ internal sealed class DictionaryTile(Hub hub) : TypingTile(hub, "Look up a word"
         if (_meanings.Count == 0)
         {
             var text = _busy ? "Looking up…" : _status.Length > 0 ? _status : "Meanings of English words";
+            if (!_busy && _suggestion is { } better && _status.Length > 0)
+            {
+                var row = new SKRect(t.Left + 6, t.Top + 66, t.Right - 6, t.Top + 92);
+                ui.Fill(row, 8, Theme.Overlay(ui.Hovering(row) ? (byte)30 : (byte)14));
+                ui.Text($"Did you mean “{better}”?", row.Left + 8, row.MidY + 4, row.Width - 16, 11, Theme.Weight.SemiBold, Theme.Accent);
+                ui.Hit(row, () =>
+                {
+                    Input.Text = better;
+                    Input.Caret = better.Length;
+                    _suggestion = null;
+                    Settled(better);
+                });
+            }
             ui.Text(text, t.Left + 12, t.Top + 56, t.Width - 24, 10.5f, Theme.Weight.Regular, Theme.Faint);
             return;
         }
@@ -486,7 +507,13 @@ internal sealed class GitTile : Tile
         Refresh();
         if (_repos.Count == 0)
         {
-            Note(ui, t, _busy ? "Reading…" : "Not a git repo", _busy ? "" : "Is git installed?");
+            // Say what's actually wrong: a web link, a folder that isn't there, or no git.
+            var first = Settings.GitFolders[0];
+            var (headline, hint) = _busy ? ("Reading…", "")
+                : first.Contains("://") || first.StartsWith("git@", StringComparison.Ordinal) ? ("That's a web link", "Paste the folder on this PC instead")
+                : !Directory.Exists(first) ? ("Folder not found", "Click + to fix the path")
+                : ("Not a git repo", "Is git installed?");
+            Note(ui, t, headline, hint);
             return;
         }
         var y = t.Top + 46;

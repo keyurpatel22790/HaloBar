@@ -152,6 +152,21 @@ internal sealed class ClipboardService
     /// <summary>Puts text on the clipboard (it then shows up first in the history).</summary>
     public bool CopyText(string text) => ClipboardIO.Write(_hwnd, new ClipboardContent(text, null, null, null));
 
+    /// <summary>Forgets entries copied longer ago than <paramref name="age"/> (pinned snippets stay).</summary>
+    public void Expire(TimeSpan age)
+    {
+        var cutoff = DateTime.Now - age;
+        var old = _entries.Where(e => e.Time < cutoff).ToList();
+        if (old.Count == 0) return;
+        foreach (var e in old)
+        {
+            e.Content.Image?.Dispose();
+            _entries.Remove(e);
+        }
+        Save();
+        Changed?.Invoke();
+    }
+
     public void Clear()
     {
         foreach (var e in _entries) e.Content.Image?.Dispose();

@@ -31,7 +31,9 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
 
     public override bool Wheel(float notches)
     {
-        var max = Math.Max(0, Shown.Count() * (CardWidth + CardGap) - CardGap - 524);
+        var max = Hub.Settings.ClipboardList && _filter != "pinned"
+            ? Math.Max(0, Shown.Count() * ListRow - 150)
+            : Math.Max(0, Shown.Count() * (CardWidth + CardGap) - CardGap - 524);
         _scroll.Target = Math.Clamp(_scroll.Target - notches * 90, 0, max);
         return true;
     }
@@ -67,6 +69,11 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
             return;
         }
         var area = new SKRect(body.Left + 12, top, body.Right - 12, body.Bottom - 6);
+        if (Hub.Settings.ClipboardList)
+        {
+            DrawList(ui, area, entries);
+            return;
+        }
         var c = ui.Canvas;
         c.Save();
         c.ClipRect(area);
@@ -119,6 +126,44 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
             }
         }
         c.Restore();
+    }
+
+    private const float ListRow = 26;
+
+    /// <summary>The history as one line per entry, newest first; the wheel scrolls down the list.</summary>
+    private void DrawList(Ui ui, SKRect area, List<ClipEntry> entries)
+    {
+        ui.Canvas.Save();
+        ui.Canvas.ClipRect(area);
+        var y = area.Top + 6 - (float)_scroll.Value;
+        foreach (var entry in entries)
+        {
+            var row = new SKRect(area.Left, y, area.Right, y + ListRow - 2);
+            y += ListRow;
+            if (row.Bottom < area.Top || row.Top > area.Bottom) continue;
+            var hovered = ui.Hovering(row) && ui.Hovering(area);
+            var flashing = _flash == entry && DateTime.Now < _flashUntil;
+            ui.Fill(row, 8, flashing ? Theme.Accent.WithAlpha(230) : Theme.Overlay(hovered ? (byte)30 : (byte)12));
+            var kind = entry.Kind switch { ClipKind.Image => "Picture", ClipKind.Files => "Files", _ => "Text" };
+            var line = flashing ? "Copied" : entry.Preview.ReplaceLineEndings(" ");
+            ui.Text(line, row.Left + 10, row.MidY + 4, row.Width - 130, 11.5f, flashing ? Theme.Weight.Bold : Theme.Weight.Regular, flashing ? Theme.OnAccent : Theme.Text);
+            if (!flashing) ui.Text($"{kind} · {Ui.Ago(entry.Time)}", row.Right - 34, row.MidY + 4, 90, 10, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Right);
+            var chosen = entry;
+            ui.Hit(SKRect.Intersect(row, area), () =>
+            {
+                if (!Hub.Clipboard.Restore(chosen)) return;
+                _flash = Hub.Clipboard.Entries[0];
+                _flashUntil = DateTime.Now.AddSeconds(1.2);
+                _scroll.Target = 0;
+            });
+            if (hovered && entry.Kind == ClipKind.Text)
+            {
+                var pinned = Hub.Clipboard.IsPinned(entry.Content.Text!);
+                ui.IconButton(row.Right - 14, row.MidY, 9, (cv, px, py, s, col) => Icons.Pin(cv, px, py, s, pinned ? Theme.Accent : col),
+                    () => Hub.Clipboard.TogglePin(chosen.Content.Text!));
+            }
+        }
+        ui.Canvas.Restore();
     }
 
     private void DrawSnippets(Ui ui, SKRect body, float top)
