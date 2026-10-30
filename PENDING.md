@@ -1,6 +1,6 @@
 # Pending work (updated 2026-10-30, afternoon)
 
-All nine items are built and committed on `main`. The round of 2026-10-30 (installer, extras, new features; see "Done 2026-10-30") is built and installed but **not committed yet**.
+All nine items are built and committed on `main`. Everything up to 2026-10-31 is committed (280caac, not pushed).
 The repo is `github.com/keyurpatel22790/HaloBar` (private); push only when asked.
 
 ## To build, in this order
