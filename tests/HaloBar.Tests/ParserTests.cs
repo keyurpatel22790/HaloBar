@@ -703,3 +703,126 @@ public class AdBlockerTests
     public void Blocks_ad_hosts_and_youtube_ad_paths_only(string url, bool blocked) =>
         Assert.Equal(blocked, HaloBar.Platform.AdBlocker.Blocks(url));
 }
+
+public class ProfileTests
+{
+    [Fact]
+    public void SwitchingBackRestoresTheSavedLook()
+    {
+        var settings = new AppSettings { Surface = "glass", Position = "left", DoNotDisturb = true };
+        settings.DesktopWidgets.Add(new DesktopWidgetPlace { Tile = "date", X = 10, Y = 20 });
+        var saves = 0;
+        var profiles = new ProfileService(settings, new ControlsService(), () => saves++, () => { });
+
+        Assert.Equal("Saved", profiles.Use("Work"));
+        settings.Surface = "black";
+        settings.Position = "center";
+        settings.DoNotDisturb = false;
+        settings.DesktopWidgets.Clear();
+
+        Assert.Equal("On", profiles.Use("Work"));
+        Assert.Equal("glass", settings.Surface);
+        Assert.Equal("left", settings.Position);
+        Assert.True(settings.DoNotDisturb);
+        Assert.Equal("date", Assert.Single(settings.DesktopWidgets).Tile);
+        Assert.Equal("Work", profiles.Active);
+        Assert.Equal("Work", profiles.Next()); // the only saved one
+        Assert.True(saves >= 2);
+    }
+}
+
+public class ActivityButtonTests
+{
+    [Fact]
+    public void JoinButtonIsClickableAndWidensThePill()
+    {
+        using var theme = new Theme("black", "auto", false);
+        var ui = new Ui(theme, _ => { }, () => null);
+        using var bitmap = new SKBitmap(500, 40);
+        using var canvas = new SKCanvas(bitmap);
+        var joined = false;
+        var plain = new Activity(60, HudIcon.Alarm, "Stand-up", SKColors.Orange, Right: "in 3 min");
+        var meeting = plain with { ButtonLabel = "Join", Button = () => joined = true };
+
+        ui.Begin(canvas, null);
+        Assert.True(meeting.Width(ui) > plain.Width(ui) + 30);
+        var pill = new SKRect(0, 0, meeting.Width(ui), 36);
+        meeting.Draw(ui, pill);
+        Assert.False(ui.Click(new SKPoint(40, 18)));          // the title opens the island as before
+        Assert.True(ui.Click(new SKPoint(pill.Right - 30, 18))); // the button joins
+        Assert.True(joined);
+    }
+}
+
+public class ScreenReaderTests
+{
+    [Fact]
+    public void ReadsAQrCode()
+    {
+        using var generator = new QRCoder.QRCodeGenerator();
+        var png = new QRCoder.PngByteQRCode(generator.CreateQrCode("https://example.com/halobar", QRCoder.QRCodeGenerator.ECCLevel.M)).GetGraphic(6);
+        Assert.Equal("https://example.com/halobar", ScreenReader.Code(png));
+    }
+
+    [Fact]
+    public void FindsNoCodeInPlainPicture()
+    {
+        using var bitmap = new SKBitmap(200, 100);
+        bitmap.Erase(SKColors.White);
+        using var data = SKImage.FromBitmap(bitmap).Encode(SKEncodedImageFormat.Png, 100);
+        Assert.Null(ScreenReader.Code(data.ToArray()));
+    }
+
+    [Fact]
+    public async Task ReadsTextFromAPicture()
+    {
+        using var bitmap = new SKBitmap(520, 90);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(SKColors.White);
+            using var font = new SKFont(SKTypeface.FromFamilyName("Segoe UI"), 34);
+            using var paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+            canvas.DrawText("Hello from HaloBar 2026", 16, 58, font, paint);
+        }
+        using var data = SKImage.FromBitmap(bitmap).Encode(SKEncodedImageFormat.Png, 100);
+        var text = await ScreenReader.TextAsync(data.ToArray());
+        Assert.NotNull(text);
+        Assert.Contains("HaloBar", text);
+    }
+}
+
+public class FocusBlockTests
+{
+    [Fact]
+    public void BlocksListedSitesOnlyWhileFocusing()
+    {
+        var focusing = true;
+        var web = new HaloBar.Platform.WebDrawer(() => null, _ => { }, _ => { }, () => [], () => (false, false),
+            new AppSettings { FocusBlockedSites = "instagram.com, x.com" }) { Focusing = () => focusing };
+        Assert.True(web.BlockedNow("https://www.instagram.com/reels"));
+        Assert.True(web.BlockedNow("https://x.com/home"));
+        Assert.False(web.BlockedNow("https://music.youtube.com/"));
+        Assert.False(web.BlockedNow("https://notx.com/"));
+        Assert.False(web.BlockedNow("data:text/html,hi"));
+        focusing = false;
+        Assert.False(web.BlockedNow("https://www.instagram.com/"));
+    }
+}
+
+public class LayoutTests
+{
+    [Fact]
+    public void RestoringAJustSavedLayoutMovesNothing()
+    {
+        var settings = new AppSettings();
+        var layouts = new LayoutService(settings, () => { });
+        if (layouts.SaveCurrent() is null) return; // no desktop (a build server)
+        var before = settings.WindowLayouts[0];
+        Assert.NotEmpty(before.Windows);
+        Assert.Equal(before.Windows.Count, layouts.Restore(before));
+        layouts.SaveCurrent();
+        var after = settings.WindowLayouts[1];
+        foreach (var w in before.Windows)
+            Assert.Contains(after.Windows, a => a.Exe == w.Exe && a.Left == w.Left && a.Top == w.Top && a.Right == w.Right && a.Bottom == w.Bottom);
+    }
+}

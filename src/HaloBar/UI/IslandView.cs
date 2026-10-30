@@ -33,6 +33,7 @@ internal sealed class IslandView
     private readonly MediaPanel _music;
     private readonly NoticesPanel _notices;
     private readonly RemindersPanel _reminders;
+    private readonly ShelfPanel _shelf;
     private readonly FilesPanel _files;
     private readonly Queue<Notice> _pending = new();
 
@@ -78,10 +79,11 @@ internal sealed class IslandView
         _music = new MediaPanel(hub, _visualizer);
         _notices = new NoticesPanel(hub);
         _reminders = new RemindersPanel(hub);
+        _shelf = new ShelfPanel(hub);
         _files = new FilesPanel(hub, copyFiles);
         _panels =
         [
-            _home, _music, new WebPanel(hub), _files, new ShelfPanel(hub), _notices, _reminders, new AgentsPanel(hub, hub.Agents),
+            _home, _music, new WebPanel(hub), _files, _shelf, _notices, _reminders, new AgentsPanel(hub, hub.Agents),
             new LauncherPanel(hub, hub.Launcher), new PhonePanel(hub, hub.Phone), new CallPanel(hub, hub.Camera), new ChatPanel(hub, hub.Chat),
             new ControlsPanel(hub, hub.Controls), new StylePanel(hub), new SettingsPanel(hub, applyLayout),
         ];
@@ -197,6 +199,15 @@ internal sealed class IslandView
     }
 
     /// <summary>Opens the island on the Reminders panel with the reminder box ready for typing.</summary>
+    /// <summary>Opens the clipboard history with its search box ready for typing (the clipboard hotkey).</summary>
+    public void SearchClipboard()
+    {
+        if (!_shelf.Available) return;
+        Expand(pinned: true);
+        Show(_shelf);
+        Focus(_shelf.SearchField);
+    }
+
     public void NewReminder()
     {
         Expand(pinned: true);

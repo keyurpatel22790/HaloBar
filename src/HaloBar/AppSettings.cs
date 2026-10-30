@@ -260,6 +260,21 @@ internal sealed class AppSettings
     public bool WebAdFastForward { get; set; } = true;
     /// <summary>Unpacked browser extensions (folders with a manifest.json) for the web drawer.</summary>
     public List<string> WebExtensions { get; set; } = [];
+    /// <summary>Checks the internet every 20 seconds and says when it drops or comes back.</summary>
+    public bool NetworkWatch { get; set; } = true;
+    /// <summary>A reminder to unplug when charging reaches this percent; 0 for none.</summary>
+    public int ChargeLimit { get; set; } = 80;
+    /// <summary>Sites the web windows won't open while the focus timer runs (comma-separated).</summary>
+    public string FocusBlockedSites { get; set; } = "instagram.com, facebook.com, x.com, reddit.com";
+    /// <summary>Focus minutes finished today, and which day that was ("yyyy-MM-dd").</summary>
+    public int FocusMinutesToday { get; set; }
+    public string FocusDay { get; set; } = "";
+    /// <summary>Saved window arrangements, restored from the Apps panel.</summary>
+    public List<Services.WindowLayout> WindowLayouts { get; set; } = [];
+    /// <summary>Saved Work, Gaming and Night profiles.</summary>
+    public List<Services.Profile> Profiles { get; set; } = [];
+    /// <summary>The profile last switched to or saved, or "" for none.</summary>
+    public string ActiveProfile { get; set; } = "";
 
     private static readonly object SaveGate = new();
 

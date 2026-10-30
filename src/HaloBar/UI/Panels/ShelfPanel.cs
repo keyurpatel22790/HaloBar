@@ -3,10 +3,42 @@ using SkiaSharp;
 
 namespace HaloBar.UI.Panels;
 
-/// <summary>The clipboard shelf: recent copies as cards; click one to copy it again.</summary>
-internal sealed class ShelfPanel(Hub hub) : Panel(hub)
+/// <summary>The clipboard shelf: recent copies as cards; click one to copy it again. A search box narrows them down.</summary>
+internal sealed class ShelfPanel : Panel
 {
     private const float CardWidth = 128, CardGap = 10;
+    private readonly TextField _search;
+
+    public ShelfPanel(Hub hub) : base(hub)
+    {
+        // Enter copies the first match.
+        _search = new TextField("Search", _ =>
+        {
+            if (_filter == "pinned")
+            {
+                if (Pinned.FirstOrDefault() is { } text) Hub.Clipboard.CopyText(text);
+            }
+            else if (Shown.FirstOrDefault() is { } first && Hub.Clipboard.Restore(first))
+            {
+                _flash = Hub.Clipboard.Entries[0];
+                _flashUntil = DateTime.Now.AddSeconds(1.2);
+            }
+        });
+    }
+
+    /// <summary>The search box (the clipboard hotkey types into it).</summary>
+    public TextField SearchField => _search;
+
+    private bool Matches(string? text) => _search.Text.Length == 0 || text?.Contains(_search.Text.Trim(), StringComparison.CurrentCultureIgnoreCase) == true;
+
+    private bool Matches(ClipEntry e) => _search.Text.Length == 0 || e.Kind switch
+    {
+        ClipKind.Files => e.Content.Files?.Any(f => Matches(Path.GetFileName(f))) == true,
+        ClipKind.Image => Matches("picture"),
+        _ => Matches(e.Content.Text),
+    };
+
+    private IEnumerable<string> Pinned => Hub.Clipboard.Snippets.Where(Matches);
     private Spring _scroll = new(0, 300, 1);
     private ClipEntry? _flash;
     private DateTime _flashUntil;
@@ -21,13 +53,13 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
     public override IEnumerable<(string Label, Action Click)> Actions =>
         Hub.Clipboard.Entries.Count == 0 ? [] : [("Clear", () => { Hub.Clipboard.Clear(); _scroll.Snap(0); })];
 
-    private IEnumerable<ClipEntry> Shown => _filter switch
+    private IEnumerable<ClipEntry> Shown => (_filter switch
     {
         "text" => Hub.Clipboard.Entries.Where(e => e.Kind == ClipKind.Text),
         "files" => Hub.Clipboard.Entries.Where(e => e.Kind == ClipKind.Files),
         "pictures" => Hub.Clipboard.Entries.Where(e => e.Kind == ClipKind.Image),
         _ => Hub.Clipboard.Entries,
-    };
+    }).Where(Matches);
 
     public override bool Wheel(float notches)
     {
@@ -42,7 +74,7 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
 
     public override void Draw(Ui ui, SKRect body)
     {
-        if (Hub.Clipboard.Entries.Count == 0 && Hub.Clipboard.Snippets.Count == 0)
+        if (Hub.Clipboard.Entries.Count == 0 && Hub.Clipboard.Snippets.Count == 0 && _search.Text.Length == 0)
         {
             ui.Empty(body, "Clipboard is empty", "Copy text, files or pictures and they'll wait here");
             return;
@@ -55,6 +87,9 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
             var chosen = id;
             x = ui.Chip(x, body.Top + 4, label, () => { _filter = chosen; _scroll.Snap(0); }, _filter == id, 11).Right + 5;
         }
+        var search = new SKRect(Math.Max(x + 10, body.Right - 230), body.Top - 7, body.Right - 18, body.Top + 15);
+        ui.Field(_search, search, 11.5f);
+        if (_search.Text.Length > 0) ui.IconButton(search.Right - 12, search.MidY, 8, Icons.Close, () => _search.Clear());
 
         var top = body.Top + 22;
         if (_filter == "pinned")
@@ -65,7 +100,8 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
         var entries = Shown.ToList();
         if (entries.Count == 0)
         {
-            ui.Empty(new SKRect(body.Left, top, body.Right, body.Bottom), "Nothing of this kind yet", "");
+            ui.Empty(new SKRect(body.Left, top, body.Right, body.Bottom), _search.Text.Length > 0 ? "No matches" : "Nothing of this kind yet",
+                _search.Text.Length > 0 ? "Press the ✕ to see everything again" : "");
             return;
         }
         var area = new SKRect(body.Left + 12, top, body.Right - 12, body.Bottom - 6);
@@ -168,10 +204,11 @@ internal sealed class ShelfPanel(Hub hub) : Panel(hub)
 
     private void DrawSnippets(Ui ui, SKRect body, float top)
     {
-        var snippets = Hub.Clipboard.Snippets;
+        var snippets = Pinned.ToList();
         if (snippets.Count == 0)
         {
-            ui.Empty(new SKRect(body.Left, top, body.Right, body.Bottom), "No pinned snippets", "Hover a text card and press the pin to keep it here");
+            ui.Empty(new SKRect(body.Left, top, body.Right, body.Bottom), _search.Text.Length > 0 ? "No matches" : "No pinned snippets",
+                _search.Text.Length > 0 ? "" : "Hover a text card and press the pin to keep it here");
             return;
         }
         var area = new SKRect(body.Left + 12, top, body.Right - 12, body.Bottom - 6);

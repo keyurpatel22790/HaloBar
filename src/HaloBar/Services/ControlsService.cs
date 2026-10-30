@@ -44,20 +44,34 @@ internal sealed class ControlsService
     public void ToggleWifi() => Toggle(_wifi);
     public void ToggleBluetooth() => Toggle(_bluetooth);
 
+    /// <summary>Why the last switch didn't work, for the panel to show; null when it did.</summary>
+    public string? Problem { get; private set; }
+
     private void Toggle(Radio? radio)
     {
         if (radio == null) return;
+        var kind = radio.Kind;
         var next = radio.State == RadioState.On ? RadioState.Off : RadioState.On;
+        Problem = null;
         _ = Task.Run(async () =>
         {
             try
             {
-                var result = await radio.SetStateAsync(next);
-                if (result != RadioAccessStatus.Allowed) Log.Write($"Controls: {radio.Kind} switch refused ({result})");
+                // A fresh Radio for this thread: the one from start-up belongs to the window thread.
+                var fresh = (await Radio.GetRadiosAsync()).FirstOrDefault(r => r.Kind == kind) ?? radio;
+                var result = await fresh.SetStateAsync(next);
+                if (result != RadioAccessStatus.Allowed)
+                {
+                    Log.Write($"Controls: {kind} switch refused ({result})");
+                    Problem = result == RadioAccessStatus.DeniedBySystem ? $"{kind} is held by Airplane mode or a hardware switch" : $"Windows refused to switch {kind}";
+                }
             }
             catch (Exception ex)
             {
-                Log.Write($"Controls: {radio.Kind} switch failed: {ex.Message}");
+                Log.Write($"Controls: {kind} switch failed: {ex.GetType().Name} 0x{ex.HResult:X8} {ex.Message}");
+                // The Wi-Fi driver's own switch, as the network flyout uses.
+                if (kind == RadioKind.WiFi && WlanRadio.Set(next == RadioState.On)) Log.Write("Controls: switched Wi-Fi through WLAN instead");
+                else Problem = $"Couldn't switch {(kind == RadioKind.WiFi ? "Wi-Fi" : kind.ToString())} (0x{ex.HResult:X8})";
             }
             Changed?.Invoke();
         });
@@ -129,6 +143,19 @@ internal sealed class ControlsService
         using var e = new MMDeviceEnumerator();
         if (!e.TryGetDefaultAudioEndpoint(flow, Role.Multimedia, out var d)) return null;
         using (d) return d.FriendlyName;
+    }
+
+    public static string? DefaultId(DataFlow flow)
+    {
+        using var e = new MMDeviceEnumerator();
+        if (!e.TryGetDefaultAudioEndpoint(flow, Role.Multimedia, out var d)) return null;
+        using (d) return d.ID;
+    }
+
+    /// <summary>Makes the device with this id the default, if it's plugged in now.</summary>
+    public static void SetDefaultIfPresent(DataFlow flow, string id)
+    {
+        if (Devices(flow).Any(d => d.Id == id) && DefaultId(flow) != id) SetDefault(id);
     }
 
     /// <summary>Makes the next active device the default for every role. Returns its name.</summary>

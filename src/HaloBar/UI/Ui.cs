@@ -32,6 +32,10 @@ internal sealed class TextField(string placeholder, Action<string> submit)
     public Func<int, bool>? CaptureKey { get; init; }
     /// <summary>Called whenever typing into this field stops, however it stops.</summary>
     public Action? Ended { get; init; }
+    /// <summary>A password: drawn as dots, and never copied out.</summary>
+    public bool Secret { get; init; }
+    /// <summary>The text as drawn.</summary>
+    public string Shown => Secret ? new string('•', _text.Length) : _text;
 
     /// <summary>The selected range, start before end; empty when nothing is selected.</summary>
     public (int Start, int End) Selection => Anchor is { } a && a != Caret
@@ -61,10 +65,10 @@ internal sealed class TextField(string placeholder, Action<string> submit)
                 Caret = _text.Length;
                 return;
             case 0x43 when ctrl: // C
-                if (HasSelection) Clipboard(_text[Selection.Start..Selection.End]);
+                if (HasSelection && !Secret) Clipboard(_text[Selection.Start..Selection.End]);
                 return;
             case 0x58 when ctrl: // X
-                if (!HasSelection) return;
+                if (!HasSelection || Secret) return;
                 Remember();
                 Clipboard(_text[Selection.Start..Selection.End]);
                 DeleteSelection();
@@ -383,19 +387,20 @@ internal sealed class Ui(Theme theme, Action<TextField> focus, Func<TextField?> 
         var x = r.Left + 12;
         var baseline = r.MidY + size * 0.36f;
         var maxWidth = r.Width - 24;
+        var shown = field.Shown;
         if (field.Text.Length == 0 && !editing)
             Text(field.Placeholder, x, baseline, maxWidth, size, Theme.Weight.Regular, Theme.Faint);
         else
         {
             // Long text shrinks (down to 70%) so more of it shows, then scrolls with the caret.
-            using (var probe = Theme.Font(size, Theme.Weight.Regular, field.Text))
+            using (var probe = Theme.Font(size, Theme.Weight.Regular, shown))
             {
-                var full = probe.MeasureText(field.Text);
+                var full = probe.MeasureText(shown);
                 if (full > maxWidth) size = Math.Max(size * 0.7f, size * maxWidth / full);
             }
-            using var font = Theme.Font(size, Theme.Weight.Regular, field.Text);
+            using var font = Theme.Font(size, Theme.Weight.Regular, shown);
             // Keep the caret in view by scrolling long text to the left.
-            var before = font.MeasureText(field.Text[..Math.Min(field.Caret, field.Text.Length)]);
+            var before = font.MeasureText(shown[..Math.Min(field.Caret, shown.Length)]);
             var shift = Math.Max(0, before - maxWidth + 4);
             Canvas.Save();
             Canvas.ClipRect(new SKRect(x - 2, r.Top, r.Right - 10, r.Bottom));
@@ -403,13 +408,13 @@ internal sealed class Ui(Theme theme, Action<TextField> focus, Func<TextField?> 
             var (start, end) = field.Selection;
             if (editing && start != end)
             {
-                var left = x - shift + font.MeasureText(field.Text[..start]);
-                var right = x - shift + font.MeasureText(field.Text[..end]);
+                var left = x - shift + font.MeasureText(shown[..start]);
+                var right = x - shift + font.MeasureText(shown[..end]);
                 paint.Color = Theme.Accent.WithAlpha(90);
                 Canvas.DrawRect(left, r.MidY - size * 0.65f, right - left, size * 1.3f, paint);
                 paint.Color = Theme.Text;
             }
-            Canvas.DrawText(field.Text, x - shift, baseline, SKTextAlign.Left, font, paint);
+            Canvas.DrawText(shown, x - shift, baseline, SKTextAlign.Left, font, paint);
             if (editing && (int)(Now.Millisecond / 500.0) == 0)
             {
                 paint.Color = Theme.Accent;

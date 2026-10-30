@@ -317,6 +317,10 @@ internal sealed class IslandApp : IDisposable
             Lyrics = new LyricsService(),
             Shelf = shelf,
             Controls = _controls,
+            Wifi = new WifiService(),
+            Profiles = new ProfileService(settings, _controls, settings.Save, ApplyLayout),
+            Network = new NetworkHealth(() => settings.NetworkWatch),
+            Layouts = new LayoutService(settings, settings.Save),
             Agents = _agents,
             Launcher = _launcher,
             Obs = _obs,
@@ -746,10 +750,20 @@ internal sealed class IslandApp : IDisposable
         h.ScreenTime.BreakDue += () => ShowHud(new Hud(HudIcon.Timer, "Time for a break",
             Detail: $"{(int)h.ScreenTime.Session.TotalMinutes} min on screen"), TimeSpan.FromSeconds(4));
         _controls.Changed += Invalidate;
+        h.Wifi.Changed += Invalidate;
+        h.Network.Changed += Invalidate;
+        h.Network.OnlineChanged += online => Post(() => ShowHud(online
+            ? new Hud(HudIcon.Info, "Back online", Detail: h.Network.PingMs is { } ms ? $"{ms} ms" : null)
+            : new Hud(HudIcon.Info, "Internet is down", Detail: "HaloBar tells you when it's back", Tint: Red), TimeSpan.FromSeconds(3)));
+        h.Network.Start();
+        h.Power.Changed += () => Post(CheckChargeLimit);
+        h.Web.Focusing = () => h.Timer.Phase == TimerPhase.Focus && !h.Timer.Paused;
+        h.Bluetooth.Changed += Invalidate;
         _ = Task.Run(_controls.StartAsync);
 
         h.Timer.Finished += phase => Post(() =>
         {
+            if (phase == TimerPhase.Focus) CountFocus(_settings.FocusMinutes);
             Chime();
             var notice = phase == TimerPhase.Focus
                 ? new Notice("Focus timer", "Focus done", $"Take a {_settings.BreakMinutes}-minute break.", null, DateTime.Now)
@@ -852,6 +866,27 @@ internal sealed class IslandApp : IDisposable
     private bool Quiet => _settings.DoNotDisturb
                           || (_settings.QuietDuringFocus && _hub.Timer.Phase == TimerPhase.Focus && !_hub.Timer.Paused);
 
+    private bool _chargeWarned;
+
+    /// <summary>Says once per charge when the battery reaches the chosen limit.</summary>
+    private void CheckChargeLimit()
+    {
+        var p = _hub.Power;
+        if (!p.HasBattery || !p.PluggedIn) { _chargeWarned = false; return; }
+        if (_settings.ChargeLimit <= 0 || _chargeWarned || p.Percent < _settings.ChargeLimit) return;
+        _chargeWarned = true;
+        ShowNotice(new Notice("Battery", $"Charged to {p.Percent}%", "Unplug to keep the battery healthy", null, DateTime.Now));
+    }
+
+    /// <summary>Adds finished focus minutes to today's total (a new day starts from zero).</summary>
+    private void CountFocus(int minutes)
+    {
+        var today = DateTime.Now.ToString("yyyy-MM-dd");
+        if (_settings.FocusDay != today) (_settings.FocusDay, _settings.FocusMinutesToday) = (today, 0);
+        _settings.FocusMinutesToday += minutes;
+        _settings.Save();
+    }
+
     private void ToggleDoNotDisturb()
     {
         _settings.DoNotDisturb = !_settings.DoNotDisturb;
@@ -888,9 +923,11 @@ internal sealed class IslandApp : IDisposable
         if (_settings.MeetingCountdown && _hub.Calendar.Next is { } e)
         {
             var minutes = (e.Start - DateTime.Now).TotalMinutes;
-            if (minutes is <= 10 and > -5)
+            // From 10 minutes before until it ends (Join stays useful for a late arrival).
+            if (minutes <= 10 && (e.JoinUrl != null ? e.End > DateTime.Now : minutes > -5))
                 return new Activity(60, HudIcon.Alarm, e.Title, _theme.Accent,
-                    Right: minutes > 0 ? $"in {Math.Ceiling(minutes)} min" : "now");
+                    Right: minutes > 0 ? $"in {Math.Ceiling(minutes)} min" : "now",
+                    ButtonLabel: e.JoinUrl != null ? "Join" : null, Button: e.JoinUrl is { } url ? () => Open(url) : null);
         }
         var t = _hub.Timer;
         if (t.Phase != TimerPhase.Idle)
@@ -946,10 +983,15 @@ internal sealed class IslandApp : IDisposable
         ShowHud(new Hud(HudIcon.Color, hex, Detail: $"rgb({color.Red}, {color.Green}, {color.Blue}) · copied", Tint: color), TimeSpan.FromSeconds(2.5));
     }
 
+    /// <summary>What the snip in progress is for: a screenshot to keep, its text, or a QR code in it.</summary>
+    private enum SnipPurpose { Screenshot, Text, Code }
+    private SnipPurpose _snipPurpose;
+
     /// <summary>Opens Windows' region snipping; the picture comes back through the clipboard.</summary>
-    private void TakeScreenshot()
+    private void TakeScreenshot(SnipPurpose purpose = SnipPurpose.Screenshot)
     {
         _snipRequestedAt = DateTime.Now;
+        _snipPurpose = purpose;
         Open("ms-screenclip:");
     }
 
@@ -957,6 +999,11 @@ internal sealed class IslandApp : IDisposable
     {
         if (DateTime.Now - _snipRequestedAt > TimeSpan.FromMinutes(2) || entry.Content.Png is not { } png) return;
         _snipRequestedAt = default;
+        if (_snipPurpose != SnipPurpose.Screenshot)
+        {
+            Read(png, _snipPurpose);
+            return;
+        }
         try
         {
             var folder = Path.Combine(KnownFolder(FolderPictures) ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "HaloBar");
@@ -964,13 +1011,46 @@ internal sealed class IslandApp : IDisposable
             var file = Path.Combine(folder, $"Screenshot {DateTime.Now:yyyy-MM-dd HH-mm-ss}.png");
             File.WriteAllBytes(file, png);
             if (_settings.CapturesToShelf) _hub.Shelf.Add([file]);
-            ShowHud(new Hud(HudIcon.Copied, "Screenshot saved", Detail: "Copied · on the shelf"), TimeSpan.FromSeconds(2.5));
+            // Clicking it opens the picture in Paint to mark it up (arrows, boxes, text, highlight).
+            ShowNotice(new Notice("Screenshot saved", "Copied · on the shelf", "Click to mark it up", null, DateTime.Now,
+                Click: () => Open("mspaint.exe", $"\"{file}\"")));
         }
         catch (IOException ex)
         {
             Log.Write($"Screenshot not saved: {ex.Message}");
         }
     }
+
+    /// <summary>Reads the snip's text or QR code (off the window thread), copies what it found and says so.</summary>
+    private void Read(byte[] png, SnipPurpose purpose) => _ = Task.Run(async () =>
+    {
+        string? found = null;
+        try
+        {
+            found = purpose == SnipPurpose.Text ? await ScreenReader.TextAsync(png) : ScreenReader.Code(png);
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Reading the snip failed: {ex.GetType().Name} {ex.Message}");
+        }
+        Post(() =>
+        {
+            if (found == null)
+            {
+                ShowHud(new Hud(HudIcon.Info, purpose == SnipPurpose.Text ? "No text found" : "No QR code found",
+                    Detail: "Try a larger area"), TimeSpan.FromSeconds(2.5));
+                return;
+            }
+            _hub.Clipboard.CopyText(found);
+            var preview = found.ReplaceLineEndings(" ");
+            if (preview.Length > 140) preview = preview[..139] + "…";
+            if (purpose == SnipPurpose.Code && Uri.TryCreate(found, UriKind.Absolute, out var link) && (link.Scheme == "https" || link.Scheme == "http"))
+                ShowNotice(new Notice("QR code", link.Host, $"{preview} · copied; click to open", null, DateTime.Now, Click: () => Open(link.AbsoluteUri)));
+            else
+                ShowNotice(new Notice(purpose == SnipPurpose.Text ? "Text copied" : "QR code copied",
+                    purpose == SnipPurpose.Text ? $"{found.Split('\n').Length} lines" : "", preview, null, DateTime.Now));
+        });
+    });
 
     /// <summary>Caps, Num and Scroll Lock are toggles kept system-wide, so reading them from here works.</summary>
     private static (bool, bool, bool) ReadLocks() =>
@@ -998,6 +1078,12 @@ internal sealed class IslandApp : IDisposable
             case "playpause": _hub.Media.TogglePlayPause(); break;
             case "next": _hub.Media.Next(); break;
             case "web": ToggleWeb(null); break;
+            case "controls": ScreenUnderCursor()?.View.OpenPanel("Controls"); break;
+            case "clipboard": ScreenUnderCursor()?.View.SearchClipboard(); break;
+            case "profile":
+                var next = _hub.Profiles.Next();
+                ShowHud(new Hud(HudIcon.Info, $"{next} profile", Detail: _hub.Profiles.Use(next) == "Saved" ? "Saved as it is now" : null), TimeSpan.FromSeconds(2));
+                break;
             case "dnd": ToggleDoNotDisturb(); break;
             case "record": ToggleRecording(); break;
             case "previous": _hub.Media.Previous(); break;
@@ -1017,6 +1103,8 @@ internal sealed class IslandApp : IDisposable
                 else ShowHud(new Hud(HudIcon.Record, "OBS isn't connected", Detail: _obs.Status));
                 break;
             case "screenshot": TakeScreenshot(); break;
+            case "screentext": TakeScreenshot(SnipPurpose.Text); break;
+            case "qr": TakeScreenshot(SnipPurpose.Code); break;
             case "output":
                 if (ControlsService.CycleDefault(NAudio.CoreAudioApi.DataFlow.Render) is { } name)
                     ShowHud(new Hud(HudIcon.Volume, name, Detail: "Output"));
@@ -1096,7 +1184,9 @@ internal sealed class IslandApp : IDisposable
     [
         new(Menu("Open island", "open"), () => ScreenUnderCursor()?.View.ToggleExpanded()),
         new(Menu("New reminder", "reminder"), () => ScreenUnderCursor()?.View.NewReminder()),
-        new(Menu("Take a screenshot", "screenshot"), TakeScreenshot),
+        new(Menu("Take a screenshot", "screenshot"), () => TakeScreenshot()),
+        new(Menu("Copy text from the screen", "screentext"), () => TakeScreenshot(SnipPurpose.Text)),
+        new(Menu("Scan a QR code", "qr"), () => TakeScreenshot(SnipPurpose.Code)),
         new(Menu("Pick a colour", "color"), PickColor),
         new(Menu(_hub.Recorder.Recording ? "Stop recording" : "Record the screen", "record"), ToggleRecording),
         new(Menu("Do not disturb", "dnd"), ToggleDoNotDisturb, _settings.DoNotDisturb),
@@ -1541,6 +1631,7 @@ internal sealed class IslandApp : IDisposable
         _hub.Weather.Dispose();
         _hub.Stats.Dispose();
         _hub.Calendar.Dispose();
+        _hub.Network.Dispose();
         _hub.Lyrics.Dispose();
         _hub.Downloads.Dispose();
         _hub.Ticker.Dispose();
