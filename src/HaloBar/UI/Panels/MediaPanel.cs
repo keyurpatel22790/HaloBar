@@ -37,6 +37,23 @@ internal sealed class MediaPanel(Hub hub, Visualizer visualizer) : Panel(hub)
         ui.Canvas.DrawRect(r, paint);
     }
 
+    /// <summary>Any app → the app playing now → each other app with a session → any app.</summary>
+    private void CycleSource(MediaSnapshot m)
+    {
+        var sources = Hub.Media.Sources.Select(s => s.Id).ToList();
+        var current = Hub.Settings.MusicSource;
+        string next;
+        if (current.Length == 0) next = sources.FirstOrDefault(id => Hub.Media.Sources.First(s => s.Id == id).Name == m.SourceApp) ?? sources.FirstOrDefault() ?? "";
+        else
+        {
+            var i = sources.IndexOf(current);
+            next = i >= 0 && i + 1 < sources.Count ? sources[i + 1] : "";
+        }
+        Hub.Media.Choose(next);
+        Hub.ShowHud(new Hud(HudIcon.Info, next.Length == 0 ? "Music from any app"
+            : $"Music from {Hub.Media.Sources.FirstOrDefault(s => s.Id == next).Name}"));
+    }
+
     public override void Draw(Ui ui, SKRect body)
     {
         var m = Media;
@@ -54,7 +71,11 @@ internal sealed class MediaPanel(Hub hub, Visualizer visualizer) : Panel(hub)
         var x0 = art.Right + 18;
         var x1 = body.Right - 22;
         var width = x1 - x0;
-        ui.Text(m.SourceApp, x0, body.Top + 16, width - 30, 11.5f, Theme.Weight.Regular, Theme.Dim);
+        // The source: click to keep showing this app's music, again to go back to any app's.
+        var pinned = Hub.Settings.MusicSource.Length > 0;
+        var source = pinned ? $"{m.SourceApp} · only this app" : m.SourceApp;
+        ui.Text(source, x0, body.Top + 16, width - 30, 11.5f, Theme.Weight.Regular, pinned ? Theme.Accent : Theme.Dim);
+        ui.Hit(new SKRect(x0 - 4, body.Top + 2, x0 + Math.Min(width - 30, ui.Measure(source, 11.5f)) + 4, body.Top + 22), () => CycleSource(m));
         visualizer.Draw(ui.Canvas, x1 - 18, body.Top + 11, 12, m.IsPlaying ? Theme.Accent : Theme.Faint, settings.Visualizer == "pixels");
         ui.Text(m.Title, x0, body.Top + 38, width, 17, Theme.Weight.Bold);
         ui.Text(m.Artist, x0, body.Top + 56, width, 13, Theme.Weight.Regular, Theme.Dim);

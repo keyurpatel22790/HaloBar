@@ -6,7 +6,7 @@ using Windows.UI.Notifications.Management;
 namespace HaloBar.Services;
 
 /// <summary>One notification shown on the island. <paramref name="AppId"/> opens the app that sent it.</summary>
-internal sealed record Notice(string App, string Title, string Body, SKImage? Icon, DateTime Time, string? AppId = null);
+internal sealed record Notice(string App, string Title, string Body, SKImage? Icon, DateTime Time, string? AppId = null, Action? Click = null);
 
 /// <summary>Recent notices, shared by the islands on every monitor. Window thread only.</summary>
 internal sealed class NoticeHistory

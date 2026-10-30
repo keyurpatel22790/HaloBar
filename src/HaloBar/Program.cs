@@ -22,6 +22,13 @@ internal static class Program
             return StartupRegistration.IsEnabled == mode.Equals("on", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
         }
 
+        // For the build: HaloBar.exe --write-icon <path.ico> draws the app icon.
+        if (args is ["--write-icon", var iconPath])
+        {
+            IconArt.WriteIco(iconPath);
+            return 0;
+        }
+
         using var single = new Mutex(true, "HaloBar.SingleInstance", out var first);
         if (!first) return 0;
 
@@ -59,18 +66,30 @@ internal sealed class IslandScreen : IDisposable
     public MonitorInfo Monitor => Window.Monitor;
     public double Interval { get; set; }
     public double LastFrame { get; set; } = double.NegativeInfinity;
+    /// <summary>The button went down on the island itself (a click or a drag out, not something carried in).</summary>
+    public bool PressedHere { get; set; }
+    /// <summary>Something held with the button is over the island: the shelf shows as a drop zone.</summary>
+    public bool Carrying { get; set; }
     private AcrylicBackdrop? _backdrop;
     private bool _backdropFailed;
+    private GraphicsDevice _gfx;
+    private IGlassSource? _glass;
+    private bool _glassFailed, _excluded;
 
     public IslandScreen(OverlayWindow window, GraphicsDevice gfx, IslandView view)
     {
         Window = window;
         View = view;
+        _gfx = gfx;
         Surface = new CompositionSurface(gfx, window.Handle, window.Width, window.Height);
     }
 
     public void ReplaceSurface(GraphicsDevice gfx)
     {
+        _gfx = gfx;
+        _glass?.Dispose();
+        _glass = null;
+        _glassFailed = false;
         DropCanvas();
         Surface.Dispose();
         Surface = new CompositionSurface(gfx, Window.Handle, Window.Width, Window.Height);
@@ -95,6 +114,8 @@ internal sealed class IslandScreen : IDisposable
         _canvas!.RestoreToCount(1);
         _canvas.ResetMatrix();
         _canvas.Scale(Window.Scale);
+        var timer = Stopwatch.StartNew();
+        FeedGlass();
         try
         {
             View.Draw(_canvas);
@@ -107,7 +128,81 @@ internal sealed class IslandScreen : IDisposable
             _canvas.RestoreToCount(1);
         }
         _canvas.Flush();
-        return Surface.Present();
+        DrawMs += timer.Elapsed.TotalMilliseconds;
+        timer.Restart();
+        var ok = Surface.Present();
+        PresentMs += timer.Elapsed.TotalMilliseconds;
+        return ok;
+    }
+
+    /// <summary>Time spent drawing and handing frames to the GPU, for the performance line in the log.</summary>
+    public static double DrawMs, PresentMs;
+
+    /// <summary>
+    /// Gives the view the screen behind the island while the Glass lens is the surface. The island
+    /// is kept out of captures meanwhile (Windows would otherwise hand it a picture of itself), so
+    /// it doesn't show in screenshots then, the same as NotchPixel's glass.
+    /// </summary>
+    private void FeedGlass()
+    {
+        // While HaloBar records the screen the island must be in the video, and glass needs it
+        // kept out of captures; it uses Windows' own blur until the recording stops.
+        var want = View.WantsGlass && !_glassFailed && !Recording;
+        var exclude = want || View.HideFromCapture;
+        if (exclude != _excluded)
+        {
+            Window.SetCaptureExcluded(exclude);
+            _excluded = exclude;
+        }
+        if (!want)
+        {
+            View.Glass = null;
+            return;
+        }
+        _glass ??= (IGlassSource?)GlassBackdrop.Create(_gfx, Monitor.Handle) ?? new ScreenCopyBackdrop();
+        if (_glass == null || !_glass.Working)
+        {
+            _glassFailed = true; // Windows' own blur from now on, as before
+            _glass?.Dispose();
+            _glass = null;
+            View.Glass = null;
+            return;
+        }
+        // Open (or opening): the whole window, so resizing never waits for a copy. Closed: just a
+        // band around the pill, far less to copy 30 times a second. The new area is copied at once.
+        Native.GetWindowRect(Window.Handle, out var w);
+        var s = Window.Scale;
+        var b = View.Bounds;
+        var open = View.Mode == IslandMode.Expanded || b.Height > 44;
+        var screen = open
+            ? new SKRectI(w.Left, w.Top, w.Right, w.Bottom)
+            : new SKRectI(w.Left + (int)((b.Left - 24) * s), w.Top, w.Left + (int)Math.Ceiling((b.Right + 24) * s), w.Top + (int)Math.Ceiling((b.Bottom + 20) * s));
+        var picture = _glass.Behind(screen, View.GlassBlur, (open ? 16 : 50) * (View.SaveGlass ? 3 : 1));
+        _shownVersion = _glass.Version;
+        View.Glass = picture;
+        // Where that picture lies on the canvas: it may be the last area while the new one is copied.
+        var area = _glass.Area;
+        View.GlassArea = new SKRect((area.Left - w.Left) / s, (area.Top - w.Top) / s, (area.Right - w.Left) / s, (area.Bottom - w.Top) / s);
+        // How bright it is behind, for auto text colour (measured on the copier's thread).
+        if (picture != null) View.Theme.BehindBrightness = _glass.Brightness;
+    }
+
+    private int _shownVersion = -1;
+    /// <summary>Set by the app while its screen recorder runs.</summary>
+    public static bool Recording { get; set; }
+
+    /// <summary>What the glass is reading, for the log.</summary>
+    public string GlassInfo => $"{_glass?.GetType().Name ?? "none"} area {_glass?.Area} picture {View.Glass?.Width}x{View.Glass?.Height} on {Monitor.Key}";
+
+    /// <summary>A newer glass picture is ready than the one on screen: draw a frame now.</summary>
+    public bool GlassStale
+    {
+        get
+        {
+            if (_glass == null || !View.WantsGlass) return false;
+            _glass.Poll();
+            return _glass.Version != _shownVersion;
+        }
     }
 
     /// <summary>Keeps the blurred backdrop of a see-through surface under the island's outline.</summary>
@@ -134,7 +229,7 @@ internal sealed class IslandScreen : IDisposable
 
     public void Dispose()
     {
-        RevokeDragDrop(Window.Handle);
+        _glass?.Dispose();
         _backdrop?.Dispose();
         DropCanvas();
         Surface.Dispose();
@@ -176,6 +271,7 @@ internal sealed class IslandApp : IDisposable
     {
         _settings = settings;
         Lang.Use(settings.Language);
+        Prefs.Apply(settings);
         // The CPU rasteriser only needs its caches for glyphs and a few small images.
         SKGraphics.SetResourceCacheTotalByteLimit(4 * 1024 * 1024);
         SKGraphics.SetFontCacheLimit(2 * 1024 * 1024);
@@ -203,12 +299,12 @@ internal sealed class IslandApp : IDisposable
         {
             Settings = settings,
             Theme = _theme,
-            Media = new MediaService(),
+            Media = new MediaService(settings),
             Volume = new VolumeService(),
             Microphone = new MicrophoneService(),
             Brightness = new BrightnessService(),
             Power = new PowerService(),
-            Privacy = new PrivacyService(),
+            Privacy = new PrivacyService(() => settings.PrivacyIgnoredApps),
             Bluetooth = new BluetoothService(),
             Clipboard = clipboard,
             Notices = new NoticeHistory(),
@@ -224,19 +320,24 @@ internal sealed class IslandApp : IDisposable
             Agents = _agents,
             Launcher = _launcher,
             Obs = _obs,
-            Phone = new PhoneShareService(shelf, () => clipboard.Entries.FirstOrDefault(e => e.Kind == ClipKind.Text)?.Content.Text),
+            Phone = new PhoneShareService(shelf, () => settings.PhoneShareCopiedText ? clipboard.Entries.FirstOrDefault(e => e.Kind == ClipKind.Text)?.Content.Text : null),
             Chat = new ChatService(settings),
             Camera = new CameraService(),
             Downloads = new DownloadService(),
             Ticker = new TickerService(settings),
             ScreenTime = new ScreenTimeService(settings),
             Hotkeys = new HotkeyService(settings, _host.Handle),
-            Web = new WebDrawer(() => ScreenUnderCursor()?.Monitor, Post, url => Open(url)),
+            Web = new WebDrawer(() => ScreenUnderCursor()?.Monitor, Post, url => Open(url), () => settings.WebExtensions,
+                () => (settings.WebAdBlock, settings.WebAdFastForward), settings),
             Recorder = new ScreenRecorder(),
             ToggleRecording = () => Post(ToggleRecording),
+            Quiet = () => Quiet,
+            ToggleDoNotDisturb = () => Post(ToggleDoNotDisturb),
             Banners = new BannerService(settings),
             ApiPort = settings.NotifyPort,
             ShowHud = hud => Post(() => ShowHud(hud)),
+            RunOnUi = Post,
+            OpenSettings = page => Post(() => OpenSettingsWindow(page)),
             Open = Open,
             Reveal = path => Open("explorer.exe", $"/select,\"{path}\""),
         };
@@ -263,6 +364,7 @@ internal sealed class IslandApp : IDisposable
 
         StartServices();
         SyncWidgets();
+        WatchForeground();
     }
 
     // ───────────────────────────── screens ─────────────────────────────
@@ -273,6 +375,14 @@ internal sealed class IslandApp : IDisposable
         var monitors = Monitors.All();
         if (!_settings.AllMonitors) monitors = [.. monitors.Take(1)];
 
+        // A new Open size may need bigger windows: build them again.
+        var grow = Math.Max(1, Math.Clamp(_settings.OpenSize, 90, 120) / 100f);
+        if (grow != IslandView.Grow)
+        {
+            IslandView.Grow = grow;
+            foreach (var old in _screens) old.Dispose();
+            _screens = [];
+        }
         var remaining = new List<IslandScreen>(_screens);
         var next = new List<IslandScreen>();
         foreach (var monitor in monitors)
@@ -288,10 +398,7 @@ internal sealed class IslandApp : IDisposable
         }
         foreach (var gone in remaining) gone.Dispose();
         _screens = next;
-        foreach (var s in _screens)
-        {
-            s.Window.SetCaptureExcluded(_settings.HideFromCapture);
-        }
+        // Each screen keeps itself out of captures as needed (Hide from screenshots, or the glass lens) as it draws.
         Log.Write($"Screens: {string.Join(", ", _screens.Select(s => $"{s.Monitor.Key}{(s.Monitor.IsPrimary ? " (primary)" : "")}"))}");
     }
 
@@ -309,6 +416,10 @@ internal sealed class IslandApp : IDisposable
             view.Click(new SKPoint(x / window.Scale, y / window.Scale));
             _dirty = true;
         };
+        window.MouseDown += (x, y) => screen.PressedHere = true;
+        window.MouseDown += (x, y) => view.PointerDown(new SKPoint(x / window.Scale, y / window.Scale));
+        // Not mid-frame: the shell's drag holds the thread until the drop.
+        view.FileDragStarted += files => Post(() => DragOut(window.Handle, files));
         window.MouseWheel += delta =>
         {
             view.Wheel(delta);
@@ -323,15 +434,22 @@ internal sealed class IslandApp : IDisposable
             else window.EndTyping();
         };
         window.DpiChanged += () => _layoutDirty = true;
-        if (DropTarget.Register(window.Handle) is { } drop)
+        window.FilesDropped += files =>
         {
-            drop.Hovering += hovering => Post(() => view.DragHover(hovering));
-            drop.Dropped += files => Post(() =>
+            if (!_settings.ShelfEnabled || DateTime.Now - _draggedOutAt < TimeSpan.FromSeconds(1)) return; // off, or a shelf file let go over the island
+            _hub.Shelf.Add(files);
+            ShowHud(new Hud(HudIcon.Download, files.Length == 1 ? Path.GetFileName(files[0]) : $"{files.Length} files", Detail: "On the shelf"));
+            if (_settings.MediaInfoOnDrop && files.Length == 1 && MediaInfo.IsMedia(files[0]))
             {
-                _hub.Shelf.Add(files);
-                ShowHud(new Hud(HudIcon.Download, files.Length == 1 ? Path.GetFileName(files[0]) : $"{files.Length} files", Detail: "On the shelf"));
-            });
-        }
+                var file = files[0];
+                _ = MediaInfo.DescribeAsync(file).ContinueWith(t =>
+                {
+                    if (t.Result is { } info)
+                        Post(() => ShowHud(new Hud(HudIcon.Download, Path.GetFileName(file), Detail: info), TimeSpan.FromSeconds(4)));
+                });
+            }
+            _dirty = true;
+        };
         return screen;
     }
 
@@ -358,24 +476,102 @@ internal sealed class IslandApp : IDisposable
         _gfx = new GraphicsDevice();
         foreach (var s in _screens) s.ReplaceSurface(_gfx);
         foreach (var w in _widgets) w.ReplaceSurface(_gfx);
+        _chatOverlay?.ReplaceSurface(_gfx);
+        _settingsWindow?.ReplaceSurface(_gfx);
         _dirty = true;
     }
 
     // ───────────────────────────── desktop widgets ─────────────────────────────
 
     private readonly List<DesktopWidget> _widgets = [];
+    private ChatOverlay? _chatOverlay;
+    private SettingsWindow? _settingsWindow;
+
+    /// <summary>The Settings window, made the first time it's asked for and kept (closing hides it).</summary>
+    private void OpenSettingsWindow(string? page)
+    {
+        _settingsWindow ??= new SettingsWindow(_hub, _gfx, () => _layoutDirty = true);
+        _settingsWindow.Open(page);
+    }
+    private WinEventProc? _foregroundHook; // kept alive: Windows calls it
+    private IntPtr _foregroundHookHandle;
+
+    /// <summary>Watches which window comes to the front, so widgets can rise over "Show desktop".</summary>
+    private void WatchForeground()
+    {
+        _foregroundHook = (_, _, hwnd, _, _, _, _) =>
+        {
+            // A widget or the island taking the keyboard isn't an app coming forward: the desktop
+            // is still what's showing, so the widgets stay where they are.
+            GetWindowThreadProcessId(hwnd, out var process);
+            if (process == Environment.ProcessId) return;
+            _desktopInFront = IsDesktop(hwnd);
+            foreach (var w in _widgets) w.Window.OverDesktop(_desktopInFront);
+        };
+        _foregroundHookHandle = SetWinEventHook(3 /* EVENT_SYSTEM_FOREGROUND */, 3, IntPtr.Zero, _foregroundHook, 0, 0, 0 /* WINEVENT_OUTOFCONTEXT */);
+    }
+
+    /// <summary>The last window to come forward that wasn't HaloBar's own was the desktop.</summary>
+    private bool _desktopInFront;
+
+    /// <summary>
+    /// Re-checks which window is in front and puts the widgets right, in case a foreground event
+    /// was missed (they'd otherwise stay lifted over an app, or hidden behind the desktop).
+    /// </summary>
+    private void SettleWidgets()
+    {
+        var front = GetForegroundWindow();
+        GetWindowThreadProcessId(front, out var process);
+        if (process != Environment.ProcessId) _desktopInFront = IsDesktop(front);
+        foreach (var w in _widgets) w.Window.OverDesktop(_desktopInFront);
+    }
+
+    private static bool IsDesktop(IntPtr hwnd)
+    {
+        var name = new char[32];
+        var length = GetClassNameW(hwnd, name, name.Length);
+        return new string(name, 0, Math.Max(0, length)) is "WorkerW" or "Progman";
+    }
+
+    private delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, WinEventProc proc, uint process, uint thread, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hook);
 
     /// <summary>
     /// Opens a window for each tile pinned to the desktop and closes the ones unpinned. A newly
-    /// pinned tile starts at the right of the primary screen, below the ones already there.
+    /// pinned tile, or one left off every screen, goes into the first free spot on the primary
+    /// screen: down a column from the top right, then the next column to the left.
     /// </summary>
     private void SyncWidgets()
     {
+        // The chat overlay comes and goes with its switch in Settings.
+        if (_settings.ChatOverlay && _chatOverlay == null) _chatOverlay = new ChatOverlay(_hub, _gfx);
+        else if (!_settings.ChatOverlay && _chatOverlay != null)
+        {
+            _chatOverlay.Dispose();
+            _chatOverlay = null;
+        }
         var places = _settings.DesktopWidgets;
         foreach (var gone in _widgets.Where(w => !places.Contains(w.Place)).ToList())
         {
             _widgets.Remove(gone);
             gone.Dispose();
+        }
+        var monitors = Monitors.All();
+        foreach (var place in places.Where(p => p.X != 0 || p.Y != 0).ToList())
+        {
+            // Off screen (pinned below the last one, or a monitor was unplugged): place it again.
+            if (monitors.Any(m => place.X + 40 > m.Bounds.Left && place.X < m.Bounds.Right - 40
+                                  && place.Y >= m.Bounds.Top && place.Y < m.Bounds.Bottom - 60)) continue;
+            Log.Write($"Widget {place.Tile} was off screen at {place.X},{place.Y}; placing it again");
+            (place.X, place.Y) = (0, 0);
+            if (_widgets.FirstOrDefault(w => w.Place == place) is { } stale)
+            {
+                _widgets.Remove(stale);
+                stale.Dispose();
+            }
         }
         foreach (var place in places.Where(p => _widgets.All(w => w.Place != p)).ToList())
         {
@@ -387,17 +583,35 @@ internal sealed class IslandApp : IDisposable
             }
             if (place.X == 0 && place.Y == 0)
             {
-                var primary = Monitors.All().FirstOrDefault(m => m.IsPrimary) ?? Monitors.All().First();
-                var info = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
-                var work = GetMonitorInfoW(primary.Handle, ref info) ? info.rcWork : primary.Bounds;
-                var s = primary.Scale;
-                var width = (int)((place.Wide ? DesktopWidget.WideWidth : DesktopWidget.NarrowWidth) * s);
-                var below = _widgets.Where(w => w.Place.X >= work.Right - (int)(320 * s)).Select(w => w.Window.Rect.Bottom).DefaultIfEmpty(work.Top + (int)(60 * s)).Max();
-                (place.X, place.Y) = (work.Right - width - (int)(24 * s), below + (int)(12 * s));
+                (place.X, place.Y) = FreeWidgetSpot(monitors, place.Wide);
                 _settings.Save();
             }
-            _widgets.Add(new DesktopWidget(_hub, _gfx, tile, place));
+            var widget = new DesktopWidget(_hub, _gfx, tile, place);
+            // Pinned while the desktop is in front: at the bottom it would start out behind it.
+            widget.Window.OverDesktop(_desktopInFront);
+            _widgets.Add(widget);
         }
+    }
+
+    /// <summary>The top-left of the first spot on the primary screen that no widget covers.</summary>
+    private (int X, int Y) FreeWidgetSpot(IReadOnlyList<MonitorInfo> monitors, bool wide)
+    {
+        var primary = monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
+        var info = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
+        var work = GetMonitorInfoW(primary.Handle, ref info) ? info.rcWork : primary.Bounds;
+        var s = primary.Scale;
+        int width = (int)((wide ? DesktopWidget.WideWidth : DesktopWidget.NarrowWidth) * s), height = (int)(DesktopWidget.TileHeight * s);
+        int gap = (int)(12 * s), margin = (int)(24 * s), top = work.Top + (int)(60 * s);
+        var taken = _widgets.Select(w => w.Window.Rect).Select(r => new SKRectI(r.Left, r.Top, r.Right, r.Bottom)).ToList();
+        var column = (int)(DesktopWidget.NarrowWidth * s) + gap;
+        for (var x = work.Right - margin - width; x >= work.Left + margin; x -= column)
+            for (var y = top; y + height <= work.Bottom - margin; y += height + gap)
+            {
+                var spot = new SKRectI(x, y, x + width, y + height);
+                var padded = new SKRectI(spot.Left - gap / 2, spot.Top - gap / 2, spot.Right + gap / 2, spot.Bottom + gap / 2);
+                if (!taken.Any(t => t.IntersectsWith(padded))) return (x, y);
+            }
+        return (work.Right - margin - width, top); // the screen is full: overlap the first spot
     }
 
     // ───────────────────────────── services ─────────────────────────────
@@ -490,7 +704,7 @@ internal sealed class IslandApp : IDisposable
         h.Chat.Message += m => Post(() =>
         {
             // At most one pop-up every few seconds, so a busy chat doesn't take over the pill.
-            if (!_settings.ChatPopups || !_settings.ChatPanel || DateTime.Now - _lastChatPopup < TimeSpan.FromSeconds(4)) return;
+            if (!_settings.ChatPopups || !_settings.ChatPanel || Quiet || DateTime.Now - _lastChatPopup < TimeSpan.FromSeconds(4)) return;
             _lastChatPopup = DateTime.Now;
             ShowHud(new Hud(HudIcon.Chat, m.Name, Detail: m.Text, Tint: m.Color), TimeSpan.FromSeconds(3));
         });
@@ -509,6 +723,12 @@ internal sealed class IslandApp : IDisposable
         _hub.Recorder.Changed += Invalidate;
         _server.AgentEvent += (name, state, text, project) => _agents.OnCustom(name, state, text, project);
         h.Ticker.Changed += Invalidate;
+        h.Ticker.AlertTriggered += (alert, quote) => Post(() =>
+        {
+            var text = $"{alert.Symbol} is {(alert.Above ? "above" : "below")} {alert.Level:#,0.##}";
+            var detail = $"Now {quote.Price:#,0.####} {quote.Currency}";
+            ShowNotice(new Notice("Price alert", text, detail, null, DateTime.Now));
+        });
         h.Ticker.Start();
         h.Downloads.Changed += Invalidate;
         h.Downloads.Finished += path => Post(() =>
@@ -536,9 +756,18 @@ internal sealed class IslandApp : IDisposable
                 : new Notice("Focus timer", "Break over", "Ready for the next focus?", null, DateTime.Now);
             ShowNotice(notice);
         });
+        _exports = new ExportWatcher(() => _settings.ExportFolders);
+        _exports.Finished += path => Post(() =>
+        {
+            _hub.Shelf.Add([path]);
+            ShowNotice(new Notice("Export done", Path.GetFileName(path), $"{DownloadService.Size(new FileInfo(path).Length)} · on the shelf; click to open",
+                null, DateTime.Now, Click: () => Open(path)));
+        });
         h.Reminders.Due += r => Post(() =>
         {
-            Chime();
+            if (_settings.ReminderSound != "off") Chime();
+            _reminderChimes = _settings.ReminderSound == "repeat" ? 4 : 0;
+            _nextReminderChime = DateTime.Now.AddSeconds(15);
             ShowNotice(new Notice("Reminder", r.Text, r.Repeat == ReminderRepeat.None ? "" : $"Repeats {r.Repeat.ToString().ToLowerInvariant()}", null, DateTime.Now));
         });
 
@@ -546,8 +775,31 @@ internal sealed class IslandApp : IDisposable
         _server.StyleRequested += (surface, accent, album) => Post(() =>
             _theme.Choose(surface is null ? null : Looks.Surface(surface), accent is null ? null : Looks.Accent(accent), album));
         _server.PanelRequested += name => Post(() => ScreenUnderCursor()?.View.OpenPanel(name));
+        _server.SettingsRequested += page => Post(() => OpenSettingsWindow(page));
         _server.SnapshotRequested += (file, panel) => Post(() =>
         {
+            // "glass:1" saves what the second screen's glass lens currently sees behind its island.
+            if (panel?.StartsWith("glass:", StringComparison.OrdinalIgnoreCase) == true && int.TryParse(panel[6..], out var index))
+            {
+                if (_screens.ElementAtOrDefault(index)?.View.Glass is { } glass)
+                {
+                    using var data = glass.Encode(SKEncodedImageFormat.Png, 100);
+                    File.WriteAllBytes(file, data.ToArray());
+                }
+                Log.Write($"Glass {index}: {_screens.ElementAtOrDefault(index)?.GlassInfo ?? "no such screen"}");
+                return;
+            }
+            if (panel?.Equals("settings-window", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (_settingsWindow is { } window)
+                {
+                    window.Dirty = true;
+                    window.Render(window.LastFrame + 0.016, 0.016);
+                    using var data = window.Picture.Encode(SKEncodedImageFormat.Png, 100);
+                    File.WriteAllBytes(file, data.ToArray());
+                }
+                return;
+            }
             // "widget:date" saves that desktop widget's picture, since it usually sits behind windows.
             if (panel?.StartsWith("widget:", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -564,7 +816,8 @@ internal sealed class IslandApp : IDisposable
             view.Hidden = false;    // a hidden island would close the panel again
             if (panel != null) view.OpenPanel(panel);
         });
-        _server.Start();
+        if (_settings.NotifyEndpoint) _server.Start();
+        else Log.Write("Local API: off in Settings");
 
         if (_settings.MirrorNotifications)
         {
@@ -590,8 +843,21 @@ internal sealed class IslandApp : IDisposable
     private void ShowNotice(Notice notice)
     {
         _hub.Notices.Add(notice);
-        foreach (var s in _screens) s.View.PushNotice(notice);
+        // While quiet, it waits in the Notifications list without popping up.
+        if (!Quiet) foreach (var s in _screens) s.View.PushNotice(notice);
         _dirty = true;
+    }
+
+    /// <summary>Do not disturb is on, or a focus-timer session is running and that counts as quiet.</summary>
+    private bool Quiet => _settings.DoNotDisturb
+                          || (_settings.QuietDuringFocus && _hub.Timer.Phase == TimerPhase.Focus && !_hub.Timer.Paused);
+
+    private void ToggleDoNotDisturb()
+    {
+        _settings.DoNotDisturb = !_settings.DoNotDisturb;
+        _settings.Save();
+        ShowHud(new Hud(HudIcon.Info, _settings.DoNotDisturb ? "Do not disturb" : "Do not disturb off",
+            Detail: _settings.DoNotDisturb ? "Notifications wait in the list" : null), TimeSpan.FromSeconds(2));
     }
 
     private static void Chime() => PlaySound("SystemNotification", IntPtr.Zero, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
@@ -652,13 +918,13 @@ internal sealed class IslandApp : IDisposable
         var where = s.Project.Length > 0 ? s.Project : null;
         if (s.State == AgentState.Done && previous == AgentState.Working)
         {
-            ShowHud(new Hud(HudIcon.Agent, $"{s.Agent} finished", Detail: where, Tint: Green), TimeSpan.FromSeconds(3));
+            if (!Quiet) ShowHud(new Hud(HudIcon.Agent, $"{s.Agent} finished", Detail: where, Tint: Green), TimeSpan.FromSeconds(3));
             if (_settings.AgentsNotify) _hub.Notices.Add(new Notice(s.Agent, "Finished", where ?? "", null, DateTime.Now));
         }
         else if (s.State == AgentState.Waiting)
         {
-            Chime();
-            ShowHud(new Hud(HudIcon.Agent, $"{s.Agent} needs you", Detail: s.Doing, Tint: Orange), TimeSpan.FromSeconds(4));
+            if (!Quiet) Chime();
+            if (!Quiet) ShowHud(new Hud(HudIcon.Agent, $"{s.Agent} needs you", Detail: s.Doing, Tint: Orange), TimeSpan.FromSeconds(4));
             if (_settings.AgentsNotify) _hub.Notices.Add(new Notice(s.Agent, "Needs you", s.Doing, null, DateTime.Now));
         }
         else if (s.State == AgentState.Error)
@@ -732,6 +998,7 @@ internal sealed class IslandApp : IDisposable
             case "playpause": _hub.Media.TogglePlayPause(); break;
             case "next": _hub.Media.Next(); break;
             case "web": ToggleWeb(null); break;
+            case "dnd": ToggleDoNotDisturb(); break;
             case "record": ToggleRecording(); break;
             case "previous": _hub.Media.Previous(); break;
             case "timer":
@@ -775,7 +1042,7 @@ internal sealed class IslandApp : IDisposable
         if (!recorder.Recording)
         {
             if (ScreenUnderCursor()?.Monitor is not { } monitor) return;
-            if (recorder.Start(monitor.Handle, _settings.RecordSound) is { } error)
+            if (recorder.Start(monitor.Handle, _settings.RecordSound, _settings.RecordMicrophone) is { } error)
                 ShowHud(new Hud(HudIcon.Record, "Couldn't record", Detail: error), TimeSpan.FromSeconds(3));
             return;
         }
@@ -792,7 +1059,9 @@ internal sealed class IslandApp : IDisposable
                     return;
                 }
                 _hub.Shelf.Add([saved]);
-                ShowHud(new Hud(HudIcon.Record, "Recording saved", Detail: Path.GetFileName(saved)), TimeSpan.FromSeconds(3));
+                // On the clipboard too, ready to paste into a chat, a mail or a folder.
+                CopyFiles([saved]);
+                ShowHud(new Hud(HudIcon.Record, "Recording saved and copied", Detail: Path.GetFileName(saved)), TimeSpan.FromSeconds(3));
             });
         });
     }
@@ -830,6 +1099,7 @@ internal sealed class IslandApp : IDisposable
         new(Menu("Take a screenshot", "screenshot"), TakeScreenshot),
         new(Menu("Pick a colour", "color"), PickColor),
         new(Menu(_hub.Recorder.Recording ? "Stop recording" : "Record the screen", "record"), ToggleRecording),
+        new(Menu("Do not disturb", "dnd"), ToggleDoNotDisturb, _settings.DoNotDisturb),
         new(Menu(_hub.Timer.Running ? "Pause focus timer" : "Start focus timer", "timer"), _hub.Timer.Toggle),
         TrayMenuItem.Separator,
         TrayMenuItem.Submenu("Surface", [.. Looks.Surfaces.Select(s =>
@@ -867,6 +1137,7 @@ internal sealed class IslandApp : IDisposable
         new($"Local API: 127.0.0.1:{_server.Port}", () => { }, Enabled: false),
         new($"Memory: {MemoryText()}", () => { }, Enabled: false),
         TrayMenuItem.Separator,
+        new("Settings…", () => OpenSettingsWindow(null)),
         new("Open settings file", () => { _settings.Save(); Open(Path.Combine(AppPaths.Folder, "settings.json")); }),
         new("Open log", () => Open(Log.FilePath)),
         TrayMenuItem.Separator,
@@ -909,8 +1180,110 @@ internal sealed class IslandApp : IDisposable
                 return true;
             case WakeMessage:
                 return true;
+            case WM_TIMER when (nuint)wParam == DragTimer:
+                DragFrame();
+                return true;
         }
         return false;
+    }
+
+    /// <summary>Motion: "saver" always, "balanced" on battery, keeps animation under 60 frames a second.</summary>
+    private bool FrameCapped => _settings.Motion == "saver"
+                                || (_settings.Motion == "balanced" && _hub.Power.HasBattery && !_hub.Power.PluggedIn);
+
+    private static readonly string[] ColourApps =
+        ["photoshop", "lightroom", "lightroomclassic", "adobe premiere pro", "premiere", "resolve", "captureone", "capture one",
+         "affinity", "photo", "designer", "gimp", "krita", "blender"];
+
+    /// <summary>
+    /// A colour-work app came to the front with Night light on: the picture looks warmer than the
+    /// file is. Said once per app until another app comes forward; a click turns Night light off.
+    /// </summary>
+    private void WarnAboutNightLight()
+    {
+        var app = _frontApp.ToLowerInvariant();
+        var colourWork = app.Length > 0 && (ColourApps.Any(a => app == a) || app.StartsWith("gimp") || app.StartsWith("affinity") || app.StartsWith("photoshop") || app.StartsWith("lightroom"));
+        if (!colourWork) { _warnedColourApp = ""; return; }
+        if (!_settings.ColorWorkWarning || _warnedColourApp == app || _controls.NightLightOn != true) return;
+        _warnedColourApp = app;
+        ShowNotice(new Notice("Night light is on", $"{_frontApp} sees warmer colours than the file", "Click to turn Night light off", null, DateTime.Now,
+            Click: () => _controls.ToggleNightLight()));
+    }
+
+    private int _reminderChimes;
+    private DateTime _nextReminderChime;
+    private ExportWatcher? _exports;
+    private string _warnedColourApp = "";
+
+    private int _nextWidget;
+    private int _frames, _slowFrames;
+    private double _worstFrame, _nextPerfLog;
+
+    /// <summary>
+    /// Counts frames that took longer than a 60 Hz frame to draw, and logs a line a minute when
+    /// there were any, so a stutter shows up in the log with how bad it was.
+    /// </summary>
+    private double _islandMs, _widgetMs;
+    private int _widgetFrames;
+
+    private void NoteFrame(double ms, double islandMs, int widgetsDrawn, bool rendered, double now)
+    {
+        if (rendered)
+        {
+            _frames++;
+            if (ms > 16) _slowFrames++;
+            _worstFrame = Math.Max(_worstFrame, ms);
+            _islandMs += islandMs;
+            if (widgetsDrawn > 0)
+            {
+                _widgetMs += ms - islandMs;
+                _widgetFrames += widgetsDrawn;
+            }
+        }
+        if (now < _nextPerfLog) return;
+        if (_slowFrames > 0)
+            Log.Write($"Frames: {_slowFrames} of {_frames} over 16 ms in the last minute, worst {_worstFrame:0} ms; " +
+                      $"island {_islandMs / Math.Max(1, _frames):0.0} ms a frame (drawing {IslandScreen.DrawMs / Math.Max(1, _frames):0.0}, to the GPU {IslandScreen.PresentMs / Math.Max(1, _frames):0.0}), " +
+                      $"widget {_widgetMs / Math.Max(1, _widgetFrames):0.0} ms each ({_widgets.Count} widgets); {DesktopWidget.Timings.Take()}");
+        IslandScreen.DrawMs = IslandScreen.PresentMs = 0;
+        (_frames, _slowFrames, _worstFrame, _nextPerfLog, _islandMs, _widgetMs, _widgetFrames) = (0, 0, 0, now + 60, 0, 0, 0);
+    }
+
+    private const nuint DragTimer = 7;
+    private DateTime _draggedOutAt;
+    private readonly Stopwatch _dragClock = new();
+
+    /// <summary>
+    /// Drags shelf files out. The shell's drag loop keeps this thread until the drop, so the frame
+    /// loop can't run; a timer (which that loop still delivers) keeps the islands drawing meanwhile.
+    /// </summary>
+    private void DragOut(IntPtr hwnd, string[] files)
+    {
+        _dragClock.Restart();
+        SetTimer(_host.Handle, DragTimer, 16, IntPtr.Zero);
+        try { ShellDrag.Start(hwnd, files); }
+        finally
+        {
+            KillTimer(_host.Handle, DragTimer);
+            _draggedOutAt = DateTime.Now;
+            _dirty = true;
+        }
+    }
+
+    /// <summary>One frame while a drag out is running: queued work, animation and drawing.</summary>
+    private void DragFrame()
+    {
+        var dt = _dragClock.Elapsed.TotalSeconds;
+        _dragClock.Restart();
+        while (_ui.TryDequeue(out var action)) action();
+        _theme.Tick(dt, _hub.Media.Snapshot?.Palette);
+        foreach (var s in _screens)
+        {
+            var (cx, cy) = s.Window.CursorPosition();
+            var inside = cx >= 0 && cy >= 0 && cx < s.Window.Width && cy < s.Window.Height;
+            s.Interval = s.View.Update(dt, inside ? new SKPoint(cx / s.Window.Scale, cy / s.Window.Scale) : null, DateTime.Now);
+            s.Render();
+        }
     }
 
     /// <summary>Runs <paramref name="action"/> on the window thread and wakes the loop.</summary>
@@ -958,6 +1331,7 @@ internal sealed class IslandApp : IDisposable
             var dt = now - last;
             last = now;
             _theme.Tick(dt, _hub.Media.Snapshot?.Palette);
+            IslandScreen.Recording = _hub.Recorder.Recording;
             CheckLockKeys();
             if (now >= nextSecond)
             {
@@ -965,6 +1339,19 @@ internal sealed class IslandApp : IDisposable
                 _hub.Reminders.Tick();
                 _hub.ScreenTime.Tick(_frontApp);
                 SyncWidgets();
+                if (_settings.ClipboardKeepHours > 0) _hub.Clipboard.Expire(TimeSpan.FromHours(_settings.ClipboardKeepHours));
+                _exports?.Sync();
+                if (_reminderChimes > 0 && DateTime.Now >= _nextReminderChime)
+                {
+                    // Opening the island answers it; otherwise it chimes again.
+                    if (_screens.Any(s => s.View.Mode == IslandMode.Expanded)) _reminderChimes = 0;
+                    else
+                    {
+                        Chime();
+                        _reminderChimes--;
+                        _nextReminderChime = DateTime.Now.AddSeconds(15);
+                    }
+                }
                 nextSecond = now + 1;
             }
 
@@ -975,13 +1362,17 @@ internal sealed class IslandApp : IDisposable
                 var front = FullscreenWatcher.Inspect(ownWindows);
                 _frontApp = front.Process ?? "";
                 _hub.FrontApp = _frontApp;
+                WarnAboutNightLight();
+                SettleWidgets();
                 var rule = _settings.AppRules.FirstOrDefault(r => r.Process.Equals(_frontApp, StringComparison.OrdinalIgnoreCase))?.Behaviour;
                 foreach (var s in _screens)
                 {
                     var here = s.Monitor.Handle == front.Monitor;
                     var game = here && front.Game && _settings.GameStrip;
                     var fullscreenHere = here && front.Fullscreen && _settings.HideInFullscreen && !game;
-                    s.View.GameStrip = game && _snapshot == null;
+                    var everywhere = _settings.GameStripEverywhere && !game;
+                    s.View.GameStrip = (game || everywhere) && _snapshot == null;
+                    s.View.StripOpens = everywhere;
                     s.View.Slim = here && (rule == "slim" || (_settings.SlimWhenCovered && front.Maximized && rule != "normal"));
                     var hidden = (_userHidden || fullscreenHere || (here && rule == "hide")) && _snapshot == null;
                     if (hidden != s.View.Hidden && !_userHidden) Log.Write($"Full screen on {s.Monitor.Key}: {(hidden ? "hiding" : "showing")}");
@@ -992,6 +1383,7 @@ internal sealed class IslandApp : IDisposable
             if (now >= nextTopCheck)
             {
                 foreach (var s in _screens) s.Window.KeepOnTop();
+                _chatOverlay?.Window.KeepOnTop();
                 nextTopCheck = now + 2;
             }
 
@@ -1003,23 +1395,56 @@ internal sealed class IslandApp : IDisposable
                 var cursor = new SKPoint(cx / s.Window.Scale, cy / s.Window.Scale);
                 s.Interval = s.View.Update(dt, inside ? cursor : null, DateTime.Now);
                 s.Window.ClickThrough = !(inside && s.View.Contains(cursor)) && !s.View.IsTyping;
+                // A drop arrives as one message, with no notice while it hovers; a button held over
+                // the island that wasn't pressed on it is most likely a file on its way in.
+                var held = PrimaryButtonDown();
+                if (!held) s.PressedHere = false;
+                var carrying = held && inside && s.View.Contains(cursor) && !s.PressedHere && !ShellDrag.Active && _settings.ShelfEnabled;
+                if (carrying != s.Carrying)
+                {
+                    s.Carrying = carrying;
+                    s.View.DragHover(carrying);
+                }
             }
 
             bool rendered = false, animating = false, lost = false;
+            var work = Stopwatch.StartNew();
             foreach (var s in _screens)
             {
-                if (!_dirty && now - s.LastFrame < s.Interval) continue;
+                if (!_dirty && _snapshot == null && now - s.LastFrame < s.Interval && !s.GlassStale) continue;
                 lost |= !s.Render();
                 s.LastFrame = now;
                 rendered = true;
                 animating |= s.Interval == 0;
             }
-            foreach (var w in _widgets)
+            // Widgets go at their own pace (a second, or at once when touched), never because
+            // something else on the island changed; a few per frame, so drawing 29 of them never
+            // holds up the island, and none while it's animating unless one was just touched.
+            var islandMs = work.Elapsed.TotalMilliseconds;
+            var widgetsDrawn = 0;
+            var budget = animating ? 0 : 4;
+            for (var i = 0; i < _widgets.Count; i++)
             {
-                if (!_dirty && !w.Due(now)) continue;
+                var w = _widgets[(_nextWidget + i) % _widgets.Count];
+                if (!w.Due(now)) continue;
+                if (!w.Dirty && (budget <= 0 || w.Window.Covered)) continue; // behind windows: drawn once it shows again
                 lost |= !w.Render(now);
                 rendered = true;
+                budget--;
+                widgetsDrawn++;
             }
+            if (_widgets.Count > 0) _nextWidget = (_nextWidget + 1) % _widgets.Count; // nobody waits behind the same ones
+            if (_settingsWindow is { } settingsWindow && settingsWindow.Due(now))
+            {
+                lost |= !settingsWindow.Render(now, Math.Min(0.05, now - settingsWindow.LastFrame));
+                rendered = true;
+            }
+            if (_chatOverlay is { } chat && chat.Due(now) && !animating)
+            {
+                lost |= !chat.Render(now);
+                rendered = true;
+            }
+            NoteFrame(work.Elapsed.TotalMilliseconds, islandMs, widgetsDrawn, rendered, now);
             _dirty = false;
             if (_snapshot is { } snap && _screens.Count > 0)
             {
@@ -1027,7 +1452,7 @@ internal sealed class IslandApp : IDisposable
                 if (snap.Frames > 0)
                 {
                     _snapshot = snap with { Frames = snap.Frames - 1 };
-                    _dirty = true; // keep frames coming until the snapshot is taken
+                    // Frames keep coming for the island (above) until the snapshot is taken; the widgets keep their own pace.
                 }
                 else
                 {
@@ -1048,7 +1473,12 @@ internal sealed class IslandApp : IDisposable
             // One wait for the next composition paces every monitor's animation together.
             if (rendered && animating)
             {
-                DwmFlush();
+                if (FrameCapped)
+                {
+                    var spare = 1 / 60.0 - (clock.Elapsed.TotalSeconds - now);
+                    if (spare > 0.001) MsgWaitForMultipleObjectsEx(0, IntPtr.Zero, (uint)(spare * 1000), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                }
+                else DwmFlush();
                 continue;
             }
             var elapsed = clock.Elapsed.TotalSeconds;
@@ -1095,6 +1525,9 @@ internal sealed class IslandApp : IDisposable
         _hub.Web.Dispose();
         _hub.Recorder.Dispose();
         foreach (var w in _widgets) w.Dispose();
+        _chatOverlay?.Dispose();
+        _settingsWindow?.Dispose();
+        if (_foregroundHookHandle != IntPtr.Zero) UnhookWinEvent(_foregroundHookHandle);
         RemoveClipboardFormatListener(_host.Handle);
         _tray.Dispose();
         _server.Dispose();

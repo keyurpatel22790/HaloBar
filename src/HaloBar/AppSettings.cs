@@ -20,6 +20,10 @@ internal sealed class AppSettings
     public bool ClipboardEnabled { get; set; } = true;
     public int ClipboardHistorySize { get; set; } = 16;
     public bool MirrorNotifications { get; set; } = true;
+    /// <summary>Notifications, chat and agent pings wait in the list instead of popping up.</summary>
+    public bool DoNotDisturb { get; set; }
+    /// <summary>Do not disturb while a focus-timer session runs.</summary>
+    public bool QuietDuringFocus { get; set; } = true;
     /// <summary>Turn off Windows' own banner for apps whose notifications the island shows.</summary>
     public bool QuietWindowsBanners { get; set; }
     /// <summary>Banner switches HaloBar turned off: app id → the ShowBanner value before (-1 = none).</summary>
@@ -47,6 +51,12 @@ internal sealed class AppSettings
     public bool ShowBatteryEstimate { get; set; } = true;
 
     // Music.
+    /// <summary>The app whose music the island shows, by app id; "" for whichever plays.</summary>
+    public string MusicSource { get; set; } = "";
+    /// <summary>Apps never shown on the island (a browser playing videos, say).</summary>
+    public List<string> MusicHidden { get; set; } = [];
+    /// <summary>Apps seen playing, app id → name, for the switches in Settings.</summary>
+    public Dictionary<string, string> MusicSeen { get; set; } = [];
     public bool ShowLyrics { get; set; } = true;
     /// <summary>"bars" or "pixels": what plays beside the artwork on the pill.</summary>
     public string Visualizer { get; set; } = "bars";
@@ -73,6 +83,8 @@ internal sealed class AppSettings
     public List<Services.Reminder> Reminders { get; set; } = [];
     public List<Services.TodoItem> Todos { get; set; } = [];
     public string TickerSymbols { get; set; } = "BTC, ETH, ^NSEI";
+    /// <summary>Price alerts as "BTC > 70000; AAPL < 180".</summary>
+    public string PriceAlerts { get; set; } = "";
     public string PhotosFolder { get; set; } = "";
     /// <summary>Home tiles pinned to the desktop as widgets.</summary>
     public List<DesktopWidgetPlace> DesktopWidgets { get; set; } = [];
@@ -100,6 +112,8 @@ internal sealed class AppSettings
     public bool CapturesToShelf { get; set; } = true;
     /// <summary>Screen recordings include what the PC is playing.</summary>
     public bool RecordSound { get; set; } = true;
+    /// <summary>Screen recordings include the microphone, mixed with the PC's sound.</summary>
+    public bool RecordMicrophone { get; set; }
     public bool ShowDownloadActivity { get; set; } = true;
     public bool ShowCallActivity { get; set; } = true;
 
@@ -158,6 +172,95 @@ internal sealed class AppSettings
     public bool GameStrip { get; set; } = true;
     /// <summary>Shortcut per action id ("Ctrl+Alt+I"); no entry means the default, "" means none.</summary>
     public Dictionary<string, string> Hotkeys { get; set; } = [];
+    // Look, motion and accessibility.
+    /// <summary>0–100: how frosty the see-through surfaces are (Acrylic, Frost, Candy, Glass lens).</summary>
+    public int GlassBlur { get; set; } = 35;
+    /// <summary>Percent: the open card's size (more room for the panels), apart from Size.</summary>
+    public int OpenSize { get; set; } = 100;
+    /// <summary>"fluid" (screen's full refresh), "balanced" (60 fps on battery) or "saver" (60 fps always).</summary>
+    public string Motion { get; set; } = "fluid";
+    /// <summary>"auto" follows Windows' Animation effects; "on" or "off".</summary>
+    public string ReduceMotion { get; set; } = "auto";
+    /// <summary>"auto" follows Windows' Text size; otherwise a percent for the Settings list.</summary>
+    public string TextSize { get; set; } = "auto";
+    /// <summary>"auto" follows a Windows contrast theme; "on" or "off".</summary>
+    public string HigherContrast { get; set; } = "auto";
+    /// <summary>Notices and read-outs stay twice as long.</summary>
+    public bool LongerNotices { get; set; }
+    /// <summary>"auto" (the surface's own; on Glass lens light or dark by what's behind), "white", "black", or "#RRGGBB".</summary>
+    public string TextColour { get; set; } = "auto";
+    /// <summary>A soft shadow under text: "auto" on see-through surfaces, "on" or "off".</summary>
+    public string TextShadow { get; set; } = "auto";
+
+    // The island.
+    /// <summary>The closed island shows the song's title beside the cover while music plays.</summary>
+    public bool TitleInPill { get; set; } = true;
+    /// <summary>"main" opens on music or Home; "last" on the tab open when it closed.</summary>
+    public string OpenOn { get; set; } = "main";
+    public string LastPanel { get; set; } = "";
+    /// <summary>"system", "12" or "24".</summary>
+    public string TimeFormat { get; set; } = "system";
+    public bool ControlsPanel { get; set; } = true;
+    /// <summary>The Files tab and dropping files on the island.</summary>
+    public bool ShelfEnabled { get; set; } = true;
+
+    // Stats and the game strip.
+    public bool NetworkInBits { get; set; }
+    public bool StatsFahrenheit { get; set; }
+    /// <summary>The strip stays up all the time, not only over games; hovering it opens the card.</summary>
+    public bool GameStripEverywhere { get; set; }
+    public bool StripCpu { get; set; } = true;
+    public bool StripGpu { get; set; } = true;
+    public bool StripRam { get; set; } = true;
+    public bool StripNetwork { get; set; } = true;
+    public bool StripClock { get; set; } = true;
+    /// <summary>Small usage bars beside CPU and GPU.</summary>
+    public bool StripBars { get; set; } = true;
+
+    // Clipboard.
+    /// <summary>Unpinned entries older than this many hours go; 0 keeps them until the list is full.</summary>
+    public int ClipboardKeepHours { get; set; }
+    /// <summary>The Clipboard tab as a compact list rather than cards.</summary>
+    public bool ClipboardList { get; set; }
+
+    // Chat overlay: the chat in a window of its own on the screen.
+    public bool ChatOverlay { get; set; }
+    public string ChatBackground { get; set; } = "#0B0B0C";
+    public int ChatOpacity { get; set; } = 92;
+    public string ChatTextColor { get; set; } = "#F5F5F7";
+    public int ChatTextSize { get; set; } = 14;
+    /// <summary>"x,y,width,height" in screen pixels; "" until it's placed.</summary>
+    public string ChatBounds { get; set; } = "";
+
+    // Everything else.
+    /// <summary>"repeat" chimes every 15 s for up to a minute until answered, "once", or "off".</summary>
+    public string ReminderSound { get; set; } = "repeat";
+    /// <summary>The local API (notify, panel, snapshot…) on 127.0.0.1.</summary>
+    public bool NotifyEndpoint { get; set; } = true;
+    /// <summary>The phone page shows what you last copied.</summary>
+    public bool PhoneShareCopiedText { get; set; } = true;
+    /// <summary>Folders watched for finished exports and renders.</summary>
+    public List<string> ExportFolders { get; set; } = [];
+    /// <summary>Say so when a colour-work app is in front with Night light on.</summary>
+    public bool ColorWorkWarning { get; set; } = true;
+    /// <summary>A photo or video dropped on the shelf shows its resolution, length and size.</summary>
+    public bool MediaInfoOnDrop { get; set; } = true;
+    /// <summary>Apps whose camera or microphone use never lights the privacy dots.</summary>
+    public List<string> PrivacyIgnoredApps { get; set; } = [];
+    /// <summary>The web drawer stays open like a window (clicking elsewhere doesn't hide it); move and resize it.
+    /// On unless switched off in the drawer's bar.</summary>
+    public bool WebDrawerKeepOpen { get; set; } = true;
+    /// <summary>"x,y,width,height" in screen pixels, where the kept-open drawer was left (before windows per site).</summary>
+    public string WebDrawerBounds { get; set; } = "";
+    /// <summary>Each site's window, where it was left: site address → "x,y,width,height" in screen pixels.</summary>
+    public Dictionary<string, string> WebWindowBounds { get; set; } = [];
+    /// <summary>Block ads and trackers in the web drawer (YouTube and YouTube Music included).</summary>
+    public bool WebAdBlock { get; set; } = true;
+    /// <summary>An ad that still plays in the drawer is muted, sped up and skipped.</summary>
+    public bool WebAdFastForward { get; set; } = true;
+    /// <summary>Unpacked browser extensions (folders with a manifest.json) for the web drawer.</summary>
+    public List<string> WebExtensions { get; set; } = [];
+
     private static readonly object SaveGate = new();
 
     public static AppSettings Load()

@@ -28,6 +28,9 @@ internal abstract class Panel(Hub hub)
 
     public virtual void Opened() { }
 
+    /// <summary>The panel stopped showing: the island closed, or another tab was chosen.</summary>
+    public virtual void Closed() { }
+
     /// <summary>Moves to a place inside the panel named in a link ("home:2" → "2").</summary>
     public virtual void GoTo(string place) { }
 

@@ -83,8 +83,8 @@ internal sealed class StatsTile(Hub hub) : Tile(hub)
         var y = t.Top + 22;
         foreach (var (label, value, detail) in new[]
                  {
-                     ("CPU", s.Cpu, $"{s.Cpu:P0}"),
-                     ("GPU", s.Gpu, $"{s.Gpu:P0}"),
+                     ("CPU", s.Cpu, s.CpuTemp is { } ct ? $"{Prefs.Temp(ct)} · {s.Cpu:P0}" : $"{s.Cpu:P0}"),
+                     ("GPU", s.Gpu, s.GpuTemp is { } gt ? $"{Prefs.Temp(gt)} · {s.Gpu:P0}" : $"{s.Gpu:P0}"),
                      ("RAM", s.Ram, $"{s.RamUsedGb:0.0}/{s.RamTotalGb:0} GB"),
                  })
         {
@@ -162,7 +162,7 @@ internal sealed class ClockTile(Hub hub) : Tile(hub)
         if (there.Hour is >= 6 and < 18) Icons.Sun(ui.Canvas, t.Right - 24, t.Top + 24, 18, new SKColor(0xFF, 0xC8, 0x3D));
         else Icons.Moon(ui.Canvas, t.Right - 24, t.Top + 24, 18, new SKColor(0xC8, 0xD0, 0xF0));
         ui.Text(city, t.Left + 14, t.Top + 26, t.Width - 50, 12, Theme.Weight.SemiBold, Theme.Accent);
-        ui.Text(there.ToShortTimeString(), t.Left + 14, t.Top + 68, t.Width - 20, 26, Theme.Weight.Bold);
+        ui.Text(Prefs.Time(there), t.Left + 14, t.Top + 68, t.Width - 20, 26, Theme.Weight.Bold);
         var sign = diff < TimeSpan.Zero ? "−" : "+";
         var offset = diff == TimeSpan.Zero ? "Same time" : $"{sign}{Math.Abs(diff.TotalHours):0.#} h";
         var dayWord = there.Date == DateTime.Now.Date ? "Today" : there.Date > DateTime.Now.Date ? "Tomorrow" : "Yesterday";
@@ -279,8 +279,8 @@ internal sealed class NextUpTile : Tile
             return;
         }
         ui.Wrapped(e.Title, t.Left + 12, t.Top + 30, t.Width - 24, 2, 12.5f);
-        var when = e.Start <= ui.Now ? "Now" : e.Start.Date == ui.Now.Date ? e.Start.ToShortTimeString() : e.Start.ToString("ddd HH:mm");
-        ui.Text($"{when} – {e.End.ToShortTimeString()}", t.Left + 12, t.Top + 82, t.Width - 24, 11, Theme.Weight.Regular, Theme.Dim);
+        var when = e.Start <= ui.Now ? "Now" : e.Start.Date == ui.Now.Date ? Prefs.Time(e.Start) : e.Start.ToString("ddd ") + Prefs.Time(e.Start);
+        ui.Text($"{when} – {Prefs.Time(e.End)}", t.Left + 12, t.Top + 82, t.Width - 24, 11, Theme.Weight.Regular, Theme.Dim);
         var minutes = (e.Start - ui.Now).TotalMinutes;
         if (minutes > 0 && minutes < 120)
             ui.Text($"in {Math.Ceiling(minutes)} min", t.Left + 12, t.Top + 98, t.Width - 24, 11, Theme.Weight.SemiBold, Theme.Accent);
@@ -290,9 +290,13 @@ internal sealed class NextUpTile : Tile
 
 internal sealed class TickerTile : Tile
 {
-    private readonly TextField _symbols;
+    private readonly TextField _symbols, _alerts;
 
-    public TickerTile(Hub hub) : base(hub) => _symbols = new TextField("BTC, ETH, AAPL, ^NSEI", text => Hub.Ticker.SetSymbols(text));
+    public TickerTile(Hub hub) : base(hub)
+    {
+        _symbols = new TextField("BTC, ETH, AAPL, ^NSEI", text => Hub.Ticker.SetSymbols(text));
+        _alerts = new TextField("BTC > 70000; AAPL < 180", text => Hub.Ticker.SetAlerts(text));
+    }
 
     public override string Id => "ticker";
     public override string Name => "Markets";
@@ -304,10 +308,19 @@ internal sealed class TickerTile : Tile
             DrawAsk(ui, t, _symbols, "Symbols, comma-separated");
             return;
         }
+        if (ui.Focused == _alerts)
+        {
+            DrawAsk(ui, t, _alerts, "Alert me when (; between)");
+            return;
+        }
         Hub.Ticker.Touch();
         Icons.Chart(ui.Canvas, t.Left + 20, t.Top + 18, 15, Theme.Accent);
         ui.Text("Markets", t.Left + 34, t.Top + 23, t.Width - 46, 12, Theme.Weight.SemiBold, Theme.Accent);
         ui.Hit(t, () => Ask(ui, _symbols, Settings.TickerSymbols));
+        // The bell sets price alerts; it lights up while any are set.
+        var alerts = Hub.Ticker.Alerts.Count;
+        ui.IconButton(t.Right - 16, t.Top + 18, 9, (cv, x, y, s, col) => Icons.Bell(cv, x, y, s, alerts > 0 ? Theme.Accent : col),
+            () => Ask(ui, _alerts, Settings.PriceAlerts));
         var quotes = Hub.Ticker.Quotes;
         if (quotes.Count == 0)
         {
@@ -332,37 +345,38 @@ internal sealed class TickerTile : Tile
 /// <summary>A slow slideshow from a folder of photos.</summary>
 internal sealed class PhotosTile : Tile
 {
-    private readonly TextField _folder;
     private string[]? _photos;
     private int _index = -1;
     private SKImage? _photo;
     private DateTime _shownAt;
     private volatile bool _loading;
 
-    public PhotosTile(Hub hub) : base(hub) => _folder = new TextField("", text =>
-    {
-        Settings.PhotosFolder = text.Trim().Trim('"');
-        Settings.Save();
-        _photos = null;
-    });
+    public PhotosTile(Hub hub) : base(hub) { }
+
+    /// <summary>Windows' folder dialog; the slideshow starts over from the chosen folder.</summary>
+    private void ChooseFolder() => Platform.FolderPicker.Pick("Photos folder for HaloBar",
+        Directory.Exists(Settings.PhotosFolder) ? Settings.PhotosFolder : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+        folder =>
+        {
+            Settings.PhotosFolder = folder;
+            Settings.Save();
+            _photos = null;
+            _photo = null;
+            _index = -1;
+        });
 
     public override string Id => "photos";
     public override string Name => "Photos";
 
     public override void Draw(Ui ui, SKRect t)
     {
-        if (ui.Focused == _folder)
-        {
-            DrawAsk(ui, t, _folder, "Photos folder");
-            return;
-        }
         var folder = Settings.PhotosFolder;
         if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
         {
             Icons.Folder(ui.Canvas, t.MidX, t.Top + 48, 30, Theme.Faint);
             ui.Text("Pick a photos folder", t.MidX, t.Top + 92, t.Width - 16, 12, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Center);
-            ui.Text("Click and paste its path", t.MidX, t.Top + 110, t.Width - 16, 10.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
-            ui.Hit(t, () => Ask(ui, _folder, Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)));
+            ui.Text("Click to choose one", t.MidX, t.Top + 110, t.Width - 16, 10.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
+            ui.Hit(t, ChooseFolder);
             return;
         }
         _photos ??= Directory.EnumerateFiles(folder)
@@ -385,5 +399,6 @@ internal sealed class PhotosTile : Tile
         if (_photo != null) ui.Image(_photo, t, 16);
         else ui.Text(_photos.Length == 0 ? "No photos here" : "Loading…", t.MidX, t.MidY, t.Width, 11.5f, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
         ui.Hit(t, () => _shownAt = default); // click for the next photo
+        if (ui.Hovering(t)) ui.IconButton(t.Right - 16, t.Top + 16, 11, Icons.Folder, ChooseFolder); // another folder
     }
 }

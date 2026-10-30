@@ -3,7 +3,7 @@ using SkiaSharp;
 
 namespace HaloBar.UI.Panels;
 
-/// <summary>A Twitch channel's live chat, newest at the bottom.</summary>
+/// <summary>A Twitch channel's or a YouTube stream's live chat, newest at the bottom.</summary>
 internal sealed class ChatPanel : Panel
 {
     private readonly ChatService _chat;
@@ -12,7 +12,7 @@ internal sealed class ChatPanel : Panel
     public ChatPanel(Hub hub, ChatService chat) : base(hub)
     {
         _chat = chat;
-        _channel = new TextField("Twitch channel name", text => _chat.Join(text));
+        _channel = new TextField("Twitch channel, or a YouTube live link or @handle", text => _chat.Join(text));
     }
 
     public override string Title => "Chat";
@@ -27,7 +27,7 @@ internal sealed class ChatPanel : Panel
     {
         if (_chat.Channel.Length == 0)
         {
-            ui.Text("Read a Twitch channel's chat", body.MidX, body.Top + 34, body.Width - 40, 14, Theme.Weight.SemiBold, Theme.Text, SKTextAlign.Center);
+            ui.Text("Read a Twitch or YouTube live chat", body.MidX, body.Top + 34, body.Width - 40, 14, Theme.Weight.SemiBold, Theme.Text, SKTextAlign.Center);
             ui.Field(_channel, new SKRect(body.MidX - 150, body.Top + 52, body.MidX + 150, body.Top + 80), 12.5f);
             ui.Text("No login needed to read. Press Enter to join.", body.MidX, body.Top + 104, body.Width - 40, 11, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
             return;

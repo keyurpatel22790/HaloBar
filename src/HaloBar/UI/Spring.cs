@@ -22,7 +22,11 @@ internal struct Spring(double value, double stiffness = 340, double dampingRatio
         while (dt > 0)
         {
             var h = Math.Min(dt, maxStep);
-            var accel = _stiffness * (Target - Value) - _damping * Velocity;
+            // Reduce motion: quicker and at least critically damped, so things go straight to their
+            // place without bouncing past it (less movement, not slower movement).
+            var stiffness = Prefs.NoBounce ? _stiffness * 1.8 : _stiffness;
+            var damping = Prefs.NoBounce ? Math.Max(_damping * Math.Sqrt(1.8), 2 * Math.Sqrt(stiffness)) : _damping;
+            var accel = stiffness * (Target - Value) - damping * Velocity;
             Velocity += accel * h;
             Value += Velocity * h;
             dt -= h;

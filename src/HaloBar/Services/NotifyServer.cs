@@ -29,6 +29,8 @@ internal sealed class NotifyServer : IDisposable
     public event Action<string?, string?, bool?>? StyleRequested;
     /// <summary>Open the island on a panel by name ("home", "music"…), or "none" to close it.</summary>
     public event Action<string>? PanelRequested;
+    /// <summary>/settings?page=… opens the Settings window (on that page).</summary>
+    public event Action<string?>? SettingsRequested;
     /// <summary>(agent id, the JSON its hook received) from Claude Code, Codex or Gemini CLI.</summary>
     public event Action<string, string>? HookEvent;
     /// <summary>(name, state, text, project) from any other agent or script.</summary>
@@ -145,6 +147,12 @@ internal sealed class NotifyServer : IDisposable
                     return;
                 }
                 AgentEvent?.Invoke(Cut(q["name"], 40)!, q["state"], Cut(q["text"], 120), Cut(q["project"], 60));
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
+            if (path == "/settings")
+            {
+                SettingsRequested?.Invoke(HttpUtility.ParseQueryString(uri.Query)["page"]);
                 await ReplyAsync(stream, 200, "ok");
                 return;
             }

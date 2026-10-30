@@ -428,13 +428,30 @@ internal sealed class SystemTile(Hub hub) : Tile(hub)
         }
         if (SystemInfo.BatteryHealth() is { } health) rows.Add(("Battery health", $"{health:P0}"));
         var wide = t.Width > 200;
+        if (!wide)
+        {
+            // Narrow: one line per fact, label left and value right, so all four fit.
+            var top = t.Top + 40;
+            var step = Math.Min(24, (t.Bottom - 10 - top) / Math.Max(1, rows.Count));
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var (label, value) = rows[i];
+                var y = top + i * step + 8;
+                var short_ = label switch { "Battery health" => "Battery", _ => label };
+                // The app using most memory: its name on the left, how much on the right.
+                if (label == "Most memory" && value.Split(" · ") is [var app, var size])
+                    (short_, value) = (app, size);
+                ui.Text(short_, t.Left + 12, y, 62, 9.5f, Theme.Weight.Regular, Theme.Dim);
+                ui.Text(value, t.Right - 12, y, t.Width - 84, 10.5f, Theme.Weight.SemiBold, Theme.Text, SKTextAlign.Right);
+            }
+            return;
+        }
         for (var i = 0; i < rows.Count; i++)
         {
             var (label, value) = rows[i];
-            var x = wide && i % 2 == 1 ? t.MidX + 4 : t.Left + 12;
-            var y = wide ? t.Top + 48 + i / 2 * 40 : t.Top + 42 + i * 30;
-            if (!wide && y > t.Bottom - 6) break;
-            var width = wide ? t.Width / 2 - 16 : t.Width - 24;
+            var x = i % 2 == 1 ? t.MidX + 4 : t.Left + 12;
+            var y = t.Top + 48 + i / 2 * 40;
+            var width = t.Width / 2 - 16;
             ui.Text(label, x, y, width, 9.5f, Theme.Weight.Regular, Theme.Dim);
             ui.Text(value, x, y + 14, width, 11.5f, Theme.Weight.SemiBold);
         }

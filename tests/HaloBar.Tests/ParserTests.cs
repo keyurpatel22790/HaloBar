@@ -115,6 +115,41 @@ public class ChatTests
 
     [Fact]
     public void Ignores_other_lines() => Assert.Null(ChatService.Parse(":tmi.twitch.tv 001 justinfan1 :Welcome"));
+
+    [Theory]
+    [InlineData("https://www.youtube.com/watch?v=0sfDth4lMLc&t=3", "0sfDth4lMLc")]
+    [InlineData("https://youtu.be/0sfDth4lMLc", "0sfDth4lMLc")]
+    [InlineData("https://www.youtube.com/live/0sfDth4lMLc?si=x", "0sfDth4lMLc")]
+    [InlineData("https://www.youtube.com/@LofiGirl", null)]
+    public void Finds_youtube_video_ids(string link, string? id) => Assert.Equal(id, ChatService.VideoId(link));
+
+    [Fact]
+    public void Tells_youtube_from_twitch()
+    {
+        Assert.True(ChatService.IsYouTube("@LofiGirl"));
+        Assert.True(ChatService.IsYouTube("https://youtu.be/abc"));
+        Assert.False(ChatService.IsYouTube("shroud"));
+    }
+
+    [Fact]
+    public void Reads_youtube_chat_messages()
+    {
+        const string json = """
+            {"continuationContents":{"liveChatContinuation":{
+              "continuations":[{"timedContinuationData":{"continuation":"NEXT","timeoutMs":4000}}],
+              "actions":[
+                {"addChatItemAction":{"item":{"liveChatTextMessageRenderer":{"authorName":{"simpleText":"@Asha"},
+                  "message":{"runs":[{"text":"hello "},{"emoji":{"emojiId":"👋","shortcuts":[":wave:"]}}]}}}}},
+                {"addChatItemAction":{"item":{"liveChatPaidMessageRenderer":{"authorName":{"simpleText":"Ravi"},
+                  "purchaseAmountText":{"simpleText":"₹100"},"message":{"runs":[{"text":"great stream"}]}}}}},
+                {"addLiveChatTickerItemAction":{}}
+              ]}}}
+            """;
+        var (messages, next, wait) = ChatService.ParseYouTube(json);
+        Assert.Equal(["Asha: hello 👋", "Ravi: [₹100] great stream"], messages.Select(m => $"{m.Name}: {m.Text}"));
+        Assert.Equal("NEXT", next);
+        Assert.Equal(4000, wait);
+    }
 }
 
 public class UploadTests
@@ -316,6 +351,19 @@ public class LanguageTests
                 Assert.True(want.SequenceEqual(got), $"{Path.GetFileName(file)}: \"{en}\" → \"{translated}\"");
             }
         }
+    }
+}
+
+public class PriceAlertTests
+{
+    [Fact]
+    public void Reads_alerts_in_plain_words()
+    {
+        var alerts = PriceAlert.Parse("btc > 70,000; AAPL below 180.5\n^NSEI >= 25000; nonsense; ETH over $4000");
+        Assert.Equal(["BTC > 70000", "AAPL < 180.5", "^NSEI > 25000", "ETH > 4000"], alerts.Select(a => a.ToString()));
+        Assert.True(alerts[0].Met(70_000));
+        Assert.False(alerts[0].Met(69_999));
+        Assert.True(alerts[1].Met(180));
     }
 }
 
@@ -539,4 +587,119 @@ public class SpringTests
         Assert.True(s.Settled);
         Assert.Equal(100, s.Value);
     }
+}
+
+public class ShellDragTests
+{
+    [Fact]
+    public void Builds_a_data_object_for_real_files()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"halobar-drag-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(file, "drag me");
+        try
+        {
+            var data = HaloBar.Platform.ShellDrag.DataObject([file]);
+            Assert.NotEqual(IntPtr.Zero, data);
+            System.Runtime.InteropServices.Marshal.Release(data);
+            Assert.Equal(IntPtr.Zero, HaloBar.Platform.ShellDrag.DataObject([file + ".missing"]));
+        }
+        finally { File.Delete(file); }
+    }
+}
+
+public class ShellThumbnailTests
+{
+    [Fact]
+    public void Photos_come_out_the_right_way_up()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"halobar-thumb-{Guid.NewGuid():N}.png");
+        using (var bitmap = new SKBitmap(200, 200))
+        {
+            using (var canvas = new SKCanvas(bitmap))
+            {
+                canvas.Clear(SKColors.Blue);
+                canvas.DrawRect(new SKRect(0, 0, 200, 100), new SKPaint { Color = SKColors.Red });
+            }
+            using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
+            File.WriteAllBytes(file, data.ToArray());
+        }
+        try
+        {
+            using var thumb = HaloBar.Platform.ShellThumbnail.For(file, 96);
+            Assert.NotNull(thumb);
+            using var pixels = SKBitmap.FromImage(thumb);
+            var top = pixels.GetPixel(pixels.Width / 2, 2);
+            var bottom = pixels.GetPixel(pixels.Width / 2, pixels.Height - 3);
+            Assert.True(top.Red > 200 && top.Blue < 60, $"top is {top}");
+            Assert.True(bottom.Blue > 200 && bottom.Red < 60, $"bottom is {bottom}");
+        }
+        finally { File.Delete(file); }
+    }
+}
+
+public class PrefsTests
+{
+    [Fact]
+    public void Speeds_clocks_and_temperatures_follow_the_settings()
+    {
+        Assert.Equal("1.0MB/s", StatsService.Rate(1e6, bits: false));
+        Assert.Equal("8.0Mb/s", StatsService.Rate(1e6, bits: true));
+        Assert.Equal("80Mb/s", StatsService.Rate(1e7, bits: true));
+
+        var at = new DateTime(2026, 10, 30, 14, 5, 0);
+        HaloBar.UI.Prefs.Apply(new HaloBar.AppSettings { TimeFormat = "24", StatsFahrenheit = true });
+        Assert.Equal("14:05", HaloBar.UI.Prefs.Time(at));
+        Assert.Equal("212°", HaloBar.UI.Prefs.Temp(100));
+        HaloBar.UI.Prefs.Apply(new HaloBar.AppSettings { TimeFormat = "12" });
+        Assert.Equal("2:05 pm", HaloBar.UI.Prefs.Time(at));
+        Assert.Equal("54°", HaloBar.UI.Prefs.Temp(54));
+        HaloBar.UI.Prefs.Apply(new HaloBar.AppSettings());
+    }
+}
+
+public class ExportWatcherTests
+{
+    [Fact]
+    public async Task Reports_a_file_once_it_stops_growing()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"halobar-exports-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            using var watcher = new ExportWatcher(() => [folder]);
+            var done = new List<string>();
+            watcher.Finished += done.Add;
+            watcher.Sync();
+            var file = Path.Combine(folder, "render.mp4");
+            await File.WriteAllBytesAsync(file, new byte[4096]);
+            await Task.Delay(500);
+            watcher.Sync();
+            Assert.Empty(done); // still settling
+            for (var i = 0; i < 12 && done.Count == 0; i++)
+            {
+                await Task.Delay(500);
+                watcher.Sync();
+            }
+            Assert.Equal([file], done);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+}
+
+public class AdBlockerTests
+{
+    [Theory]
+    [InlineData("https://googleads.g.doubleclick.net/pagead/id", true)]
+    [InlineData("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", true)]
+    [InlineData("https://www.youtube.com/pagead/adview?ai=x", true)]
+    [InlineData("https://www.youtube.com/api/stats/ads?ver=2", true)]
+    [InlineData("https://music.youtube.com/youtubei/v1/player/ad_break?key=x", true)]
+    [InlineData("https://cdn.taboola.com/libtrc/loader.js", true)]
+    [InlineData("https://www.youtube.com/watch?v=dQw4w9WgXcQ", false)]
+    [InlineData("https://music.youtube.com/youtubei/v1/player?key=x", false)]
+    [InlineData("https://rr3---sn-x.googlevideo.com/videoplayback?id=1", false)]
+    [InlineData("https://notdoubleclick.net/", false)]
+    [InlineData("not a url", false)]
+    public void Blocks_ad_hosts_and_youtube_ad_paths_only(string url, bool blocked) =>
+        Assert.Equal(blocked, HaloBar.Platform.AdBlocker.Blocks(url));
 }

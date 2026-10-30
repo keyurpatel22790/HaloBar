@@ -116,7 +116,7 @@ internal sealed class WebPanel : Panel
     private static HttpClient CreateClient()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 HaloBar/0.4");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 HaloBar/0.5");
         return http;
     }
 

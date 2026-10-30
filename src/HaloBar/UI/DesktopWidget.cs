@@ -21,6 +21,8 @@ internal sealed class DesktopWidget : IDisposable
     private readonly Ui _ui;
     private TextField? _focused;
     private CompositionSurface _surface;
+    /// <summary>Windows' own blur of what's behind the card (Windows does the work, so many widgets cost nothing).</summary>
+    private AcrylicBackdrop? _backdrop;
     private SKCanvas? _canvas;
     private SKBitmap? _canvasBitmap;
     private (int X, int Y)? _lastCursor;
@@ -39,6 +41,7 @@ internal sealed class DesktopWidget : IDisposable
         _ui = new Ui(hub.Theme, Focus, () => _focused);
         Window.Place(place.X, place.Y, Pixels(Width), Pixels(TileHeight));
         _surface = new CompositionSurface(gfx, Window.Handle, Pixels(Width), Pixels(TileHeight));
+        _backdrop = AcrylicBackdrop.Create(Window.Handle);
 
         Window.Clicked += (x, y) =>
         {
@@ -97,6 +100,11 @@ internal sealed class DesktopWidget : IDisposable
             _lastCursor = cursor;
             Dirty = true;
         }
+        if (_tile.Fresh)
+        {
+            _tile.Fresh = false;
+            Dirty = true;
+        }
         var interval = _focused != null ? Math.Min(_tile.FrameInterval, 0.25) : _tile.FrameInterval;
         return Dirty || now - LastFrame >= interval;
     }
@@ -126,6 +134,7 @@ internal sealed class DesktopWidget : IDisposable
             _canvasBitmap = _surface.Bitmap;
             _canvas = new SKCanvas(_canvasBitmap);
         }
+        var timer = System.Diagnostics.Stopwatch.StartNew();
         var canvas = _canvas!;
         canvas.RestoreToCount(1);
         canvas.ResetMatrix();
@@ -138,11 +147,30 @@ internal sealed class DesktopWidget : IDisposable
         try
         {
             // The island's own colour, a touch see-through, with a hairline edge so it reads on any wallpaper.
-            _ui.Fill(card, 18, theme.Background.WithAlpha(236));
-            using (var edge = new SKPaint { Color = theme.Overlay(26), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1 })
-                canvas.DrawRoundRect(Ui.Inflate(card, -0.5f), 18, 18, edge);
+            // Glass: Windows' blur behind (the backdrop), a tint of the island's colour over it so
+            // text reads, light catching the top edge, and a rim that fades down the sides.
+            const float radius = 20;
+            _backdrop?.Update(true, 0, 0, Pixels(Width), Pixels(TileHeight), radius * Window.Scale);
+            var light = theme.DarkText && !theme.Surface.IsLight;
+            var tint = light ? new SKColor(0xF4, 0xF4, 0xF7) : theme.Background;
+            using (var fill = new SKPaint { IsAntialias = true })
+            {
+                fill.Shader = SKShader.CreateLinearGradient(new SKPoint(0, 0), new SKPoint(0, card.Height),
+                    [tint.WithAlpha((byte)(_backdrop != null ? 150 : 236)), tint.WithAlpha((byte)(_backdrop != null ? 190 : 236))], SKShaderTileMode.Clamp);
+                canvas.DrawRoundRect(card, radius, radius, fill);
+                // A soft sheen across the top third.
+                fill.Shader = SKShader.CreateLinearGradient(new SKPoint(0, 0), new SKPoint(0, card.Height * 0.4f),
+                    [SKColors.White.WithAlpha(light ? (byte)50 : (byte)22), SKColors.White.WithAlpha(0)], SKShaderTileMode.Clamp);
+                canvas.DrawRoundRect(card, radius, radius, fill);
+            }
+            using (var rim = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.2f })
+            {
+                rim.Shader = SKShader.CreateLinearGradient(new SKPoint(0, 0), new SKPoint(0, card.Height),
+                    [SKColors.White.WithAlpha(110), SKColors.White.WithAlpha(18), SKColors.White.WithAlpha(40)], [0, 0.55f, 1], SKShaderTileMode.Clamp);
+                canvas.DrawRoundRect(Ui.Inflate(card, -0.6f), radius, radius, rim);
+            }
             canvas.Save();
-            canvas.ClipRoundRect(new SKRoundRect(card, 18), SKClipOperation.Intersect, true);
+            canvas.ClipRoundRect(new SKRoundRect(card, 20), SKClipOperation.Intersect, true);
             _tile.Draw(_ui, card);
             _failed = false;
         }
@@ -155,7 +183,31 @@ internal sealed class DesktopWidget : IDisposable
         canvas.Flush();
         LastFrame = now;
         Dirty = false;
-        return _surface.Present();
+        var drawn = timer.Elapsed.TotalMilliseconds;
+        var ok = _surface.Present();
+        Timings.Note(_tile.Id, drawn, timer.Elapsed.TotalMilliseconds - drawn);
+        return ok;
+    }
+
+    /// <summary>Where widget frames spend their time, for the performance line in the log.</summary>
+    public static class Timings
+    {
+        private static readonly Dictionary<string, (double Draw, double Present, int Count)> Totals = [];
+        public static void Note(string id, double draw, double present)
+        {
+            var t = Totals.GetValueOrDefault(id);
+            Totals[id] = (t.Draw + draw, t.Present + present, t.Count + 1);
+        }
+        /// <summary>"drawing 3.1, to the GPU 0.4; slowest: stats 9.0, month 6.2" and starts over.</summary>
+        public static string Take()
+        {
+            if (Totals.Count == 0) return "";
+            var n = Totals.Values.Sum(t => t.Count);
+            var text = $"widgets: drawing {Totals.Values.Sum(t => t.Draw) / n:0.0}, to the GPU {Totals.Values.Sum(t => t.Present) / n:0.0}; slowest: " +
+                       string.Join(", ", Totals.OrderByDescending(t => t.Value.Draw / t.Value.Count).Take(4).Select(t => $"{t.Key} {t.Value.Draw / t.Value.Count:0.0}"));
+            Totals.Clear();
+            return text;
+        }
     }
 
     // ───────────────────────────── typing ─────────────────────────────
@@ -205,6 +257,7 @@ internal sealed class DesktopWidget : IDisposable
 
     public void Dispose()
     {
+        _backdrop?.Dispose();
         DropCanvas();
         _surface.Dispose();
         Window.Dispose();

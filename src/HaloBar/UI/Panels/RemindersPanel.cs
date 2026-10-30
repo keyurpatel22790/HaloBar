@@ -120,8 +120,8 @@ internal sealed class RemindersPanel : Panel
         var now = DateTime.Now;
         var minutes = (due - now).TotalMinutes;
         if (minutes < 60) return $"in {Math.Max(1, Math.Ceiling(minutes))} min";
-        if (due.Date == now.Date) return due.ToShortTimeString();
-        if (due.Date == now.Date.AddDays(1)) return "Tomorrow " + due.ToShortTimeString();
-        return due.ToString("ddd ") + due.ToShortTimeString();
+        if (due.Date == now.Date) return Prefs.Time(due);
+        if (due.Date == now.Date.AddDays(1)) return "Tomorrow " + Prefs.Time(due);
+        return due.ToString("ddd ") + Prefs.Time(due);
     }
 }

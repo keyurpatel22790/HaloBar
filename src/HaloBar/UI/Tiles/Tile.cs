@@ -21,6 +21,10 @@ internal abstract class Tile(Hub hub)
     /// <summary>How soon the tile wants a redraw while shown, in seconds.</summary>
     public virtual double FrameInterval => 1;
 
+    /// <summary>Set when something arrived (a web answer) that should show now, not at the next tick.</summary>
+    public bool Fresh { get; set; }
+    protected void Changed() => Fresh = true;
+
     public abstract void Draw(Ui ui, SKRect r);
 
     // ───────────────────────────── shared helpers ─────────────────────────────

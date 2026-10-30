@@ -1,5 +1,8 @@
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using SkiaSharp;
 
 namespace HaloBar.Services;
@@ -7,8 +10,9 @@ namespace HaloBar.Services;
 internal sealed record ChatMessage(string Name, SKColor Color, string Text, DateTime Time);
 
 /// <summary>
-/// A Twitch channel's live chat, read anonymously over Twitch's IRC websocket (no login needed to
-/// read). Names keep the colour each person picked on Twitch.
+/// A live chat: a Twitch channel's, read anonymously over Twitch's IRC websocket (names keep the
+/// colour each person picked), or a YouTube live stream's, read from the stream's public chat
+/// page and then YouTube's own chat endpoint, as the chat pop-out does. No login or key for either.
 /// </summary>
 internal sealed class ChatService : IDisposable
 {
@@ -32,10 +36,20 @@ internal sealed class ChatService : IDisposable
 
     public void Start() => Join(_settings.ChatTwitch);
 
+    /// <summary>A YouTube link, a video link or an @handle; anything else is a Twitch channel.</summary>
+    public static bool IsYouTube(string text) =>
+        text.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || text.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
+        || text.StartsWith('@');
+
     public void Join(string channel)
     {
-        channel = channel.Trim().TrimStart('#').ToLowerInvariant();
-        if (channel.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) channel = channel.TrimEnd('/').Split('/')[^1];
+        channel = channel.Trim();
+        var youtube = IsYouTube(channel);
+        if (!youtube)
+        {
+            channel = channel.TrimStart('#').ToLowerInvariant();
+            if (channel.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) channel = channel.TrimEnd('/').Split('/')[^1];
+        }
         _settings.ChatTwitch = channel;
         _settings.Save();
         _cts?.Cancel();
@@ -49,7 +63,140 @@ internal sealed class ChatService : IDisposable
         }
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
-        _ = Task.Run(() => RunAsync(channel, ct));
+        _ = Task.Run(() => youtube ? RunYouTubeAsync(channel, ct) : RunAsync(channel, ct));
+    }
+
+    // ───────────────────────────── YouTube ─────────────────────────────
+
+    private static readonly HttpClient Http = CreateClient();
+
+    private static HttpClient CreateClient()
+    {
+        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36");
+        http.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en");
+        http.DefaultRequestHeaders.Add("Cookie", "SOCS=CAI; CONSENT=YES+1"); // skip the EU consent page
+        return http;
+    }
+
+    /// <summary>The video id in a watch, youtu.be, /live/ or /shorts/ link; null for a channel.</summary>
+    internal static string? VideoId(string link)
+    {
+        var m = Regex.Match(link, @"(?:[?&]v=|youtu\.be/|/live/|/shorts/|/embed/)([A-Za-z0-9_-]{11})");
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private async Task RunYouTubeAsync(string link, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                Status = "Finding the stream…";
+                Changed?.Invoke();
+                var id = VideoId(link) ?? await LiveVideoOfChannelAsync(link, ct);
+                if (id == null)
+                {
+                    Status = "Not live right now";
+                    Changed?.Invoke();
+                    await Task.Delay(TimeSpan.FromMinutes(1), ct);
+                    continue;
+                }
+                var page = await Http.GetStringAsync($"https://www.youtube.com/live_chat?is_popout=1&v={id}", ct);
+                var token = Regex.Match(page, "\"continuation\":\"([^\"]+)\"").Groups[1].Value;
+                var version = Regex.Match(page, "\"INNERTUBE_CONTEXT_CLIENT_VERSION\":\"([^\"]+)\"").Groups[1].Value;
+                if (token.Length == 0)
+                {
+                    Status = "This stream has no live chat";
+                    Changed?.Invoke();
+                    await Task.Delay(TimeSpan.FromMinutes(1), ct);
+                    continue;
+                }
+                if (version.Length == 0) version = "2.20260101.00.00";
+                Status = "YouTube live chat";
+                Changed?.Invoke();
+                while (!ct.IsCancellationRequested && token.Length > 0)
+                {
+                    var body = JsonSerializer.Serialize(new Dictionary<string, object>
+                    {
+                        ["context"] = new Dictionary<string, object> { ["client"] = new Dictionary<string, string> { ["clientName"] = "WEB", ["clientVersion"] = version } },
+                        ["continuation"] = token,
+                    });
+                    using var response = await Http.PostAsync("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false",
+                        new StringContent(body, Encoding.UTF8, "application/json"), ct);
+                    response.EnsureSuccessStatusCode();
+                    var (messages, next, wait) = ParseYouTube(await response.Content.ReadAsStringAsync(ct));
+                    foreach (var m in messages) Add(m);
+                    token = next ?? "";
+                    await Task.Delay(Math.Clamp(wait, 1000, 10000), ct);
+                }
+                Status = "The stream ended";
+                Changed?.Invoke();
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException or KeyNotFoundException or InvalidOperationException)
+            {
+                Log.Write($"Chat (YouTube): {ex.Message}");
+                Status = "Reconnecting…";
+                Changed?.Invoke();
+            }
+            try { await Task.Delay(5000, ct); } catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>The live video of a channel (@handle, /channel/…, /c/…), from its /live page.</summary>
+    internal static async Task<string?> LiveVideoOfChannelAsync(string link, CancellationToken ct)
+    {
+        var channel = link.StartsWith('@') ? $"https://www.youtube.com/{link}" : link.TrimEnd('/');
+        if (!channel.EndsWith("/live", StringComparison.OrdinalIgnoreCase)) channel += "/live";
+        var page = await Http.GetStringAsync(channel, ct);
+        var canonical = Regex.Match(page, "<link rel=\"canonical\" href=\"([^\"]+)\"").Groups[1].Value;
+        var id = VideoId(canonical);
+        // A channel that isn't live points its /live page at the channel itself.
+        return id != null && page.Contains("\"isLive\":true", StringComparison.Ordinal) ? id : null;
+    }
+
+    /// <summary>Messages, the next continuation and how long to wait, from a get_live_chat answer.</summary>
+    internal static (List<ChatMessage> Messages, string? Next, int WaitMs) ParseYouTube(string json)
+    {
+        var messages = new List<ChatMessage>();
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("continuationContents", out var contents)
+            || !contents.TryGetProperty("liveChatContinuation", out var chat)) return (messages, null, 0);
+        if (chat.TryGetProperty("actions", out var actions))
+        {
+            foreach (var action in actions.EnumerateArray())
+            {
+                if (!action.TryGetProperty("addChatItemAction", out var add) || !add.TryGetProperty("item", out var item)) continue;
+                if (!item.TryGetProperty("liveChatTextMessageRenderer", out var r)
+                    && !item.TryGetProperty("liveChatPaidMessageRenderer", out r)) continue;
+                var name = r.TryGetProperty("authorName", out var an) && an.TryGetProperty("simpleText", out var st) ? st.GetString() ?? "" : "";
+                var text = new StringBuilder();
+                if (r.TryGetProperty("message", out var message) && message.TryGetProperty("runs", out var runs))
+                    foreach (var run in runs.EnumerateArray())
+                    {
+                        if (run.TryGetProperty("text", out var t)) text.Append(t.GetString());
+                        else if (run.TryGetProperty("emoji", out var emoji))
+                            text.Append(emoji.TryGetProperty("emojiId", out var e) && e.GetString() is { Length: <= 4 } plain ? plain
+                                : emoji.TryGetProperty("shortcuts", out var sc) && sc.GetArrayLength() > 0 ? sc[0].GetString() : "");
+                    }
+                if (r.TryGetProperty("purchaseAmountText", out var paid) && paid.TryGetProperty("simpleText", out var amount))
+                    text.Insert(0, $"[{amount.GetString()}] ");
+                if (name.Length > 0 && text.Length > 0) messages.Add(new ChatMessage(name.TrimStart('@'), NameColor(name), text.ToString(), DateTime.Now));
+            }
+        }
+        string? next = null;
+        var wait = 5000;
+        if (chat.TryGetProperty("continuations", out var conts) && conts.GetArrayLength() > 0)
+            foreach (var kind in conts[0].EnumerateObject())
+            {
+                if (kind.Value.TryGetProperty("continuation", out var c)) next = c.GetString();
+                if (kind.Value.TryGetProperty("timeoutMs", out var w)) wait = w.GetInt32();
+            }
+        return (messages, next, wait);
     }
 
     private async Task RunAsync(string channel, CancellationToken ct)

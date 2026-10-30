@@ -12,7 +12,7 @@ internal sealed class WidgetWindow : NativeWindow
 {
     private const int ExStyle = WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP;
     private const int DragThreshold = 4;
-    private bool _typing, _pressed, _dragging;
+    private bool _typing, _pressed, _dragging, _overDesktop;
     private POINT _pressAt;
     private RECT _startRect;
 
@@ -46,6 +46,26 @@ internal sealed class WidgetWindow : NativeWindow
         }
     }
 
+    /// <summary>
+    /// Other windows hide all of it (checked at the middle and near each corner), so drawing it
+    /// would be wasted. It's drawn again as soon as any of it shows.
+    /// </summary>
+    public bool Covered
+    {
+        get
+        {
+            var r = Rect;
+            const int inset = 6;
+            POINT[] points =
+            [
+                new() { X = (r.Left + r.Right) / 2, Y = (r.Top + r.Bottom) / 2 },
+                new() { X = r.Left + inset, Y = r.Top + inset }, new() { X = r.Right - inset, Y = r.Top + inset },
+                new() { X = r.Left + inset, Y = r.Bottom - inset }, new() { X = r.Right - inset, Y = r.Bottom - inset },
+            ];
+            return points.All(p => WindowFromPoint(p) != Handle);
+        }
+    }
+
     /// <summary>Pointer position relative to the window, in pixels, or null when it's elsewhere.</summary>
     public (int X, int Y)? Cursor
     {
@@ -56,6 +76,36 @@ internal sealed class WidgetWindow : NativeWindow
             return WindowFromPoint(p) == Handle ? (p.X - r.Left, p.Y - r.Top) : null;
         }
     }
+
+    /// <summary>
+    /// While the desktop itself is in front (Win+D, "Show desktop"), Windows would cover the
+    /// widgets with it; lift them above until another app comes to the front.
+    /// </summary>
+    public void OverDesktop(bool on)
+    {
+        // Compare with the window's real state too, so a lift that was never undone gets undone.
+        var topmost = ((long)GetWindowLongPtrW(Handle, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+        if (on == _overDesktop && on == topmost) return;
+        if (AlwaysOnTop) return;
+        if (on)
+        {
+            _overDesktop = true;
+            ShowWindow(Handle, 4 /* SW_SHOWNOACTIVATE */);
+            SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+        else
+        {
+            SetWindowPos(Handle, new IntPtr(-2) /* HWND_NOTOPMOST */, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            _overDesktop = false;
+            SetWindowPos(Handle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
+    /// <summary>Stays above other windows (the chat overlay) instead of on the desktop.</summary>
+    public bool AlwaysOnTop { get; init; }
+
+    /// <summary>Puts an always-on-top window back above other topmost windows.</summary>
+    public void KeepOnTop() => SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
     public void BeginTyping()
     {
@@ -79,11 +129,19 @@ internal sealed class WidgetWindow : NativeWindow
     {
         switch (msg)
         {
-            case WM_WINDOWPOSCHANGING:
-                // Whatever else changes, stay under every other window, on the desktop.
+            case WM_WINDOWPOSCHANGING when !_overDesktop && !AlwaysOnTop:
+                // Whatever else changes, stay under every other window, just above the desktop.
+                // Not HWND_BOTTOM: that is under the desktop too, and a widget that was clicked or
+                // typed into (Windows restacks it then) would vanish behind it.
                 var pos = Marshal.PtrToStructure<WINDOWPOS>(lParam);
-                pos.hwndInsertAfter = HWND_BOTTOM;
-                pos.flags &= ~SWP_NOZORDER;
+                var desktop = FindWindowW("Progman", null);
+                var above = desktop == IntPtr.Zero ? IntPtr.Zero : GetWindow(desktop, GW_HWNDPREV);
+                if (above == Handle) pos.flags |= SWP_NOZORDER; // already right above it
+                else
+                {
+                    pos.hwndInsertAfter = above != IntPtr.Zero ? above : HWND_BOTTOM;
+                    pos.flags &= ~SWP_NOZORDER;
+                }
                 Marshal.StructureToPtr(pos, lParam, false);
                 return IntPtr.Zero;
             case WM_MOUSEACTIVATE:
@@ -98,9 +156,11 @@ internal sealed class WidgetWindow : NativeWindow
             case WM_MOUSEMOVE when _pressed:
                 GetCursorPos(out var now);
                 if (!_dragging && Math.Abs(now.X - _pressAt.X) + Math.Abs(now.Y - _pressAt.Y) > DragThreshold) _dragging = true;
+                // Only the position: sending it to the bottom here dropped it behind the desktop
+                // while the desktop was in front (widgets are lifted above it then).
                 if (_dragging)
-                    SetWindowPos(Handle, HWND_BOTTOM, _startRect.Left + now.X - _pressAt.X, _startRect.Top + now.Y - _pressAt.Y, 0, 0,
-                        SWP_NOSIZE | SWP_NOACTIVATE);
+                    SetWindowPos(Handle, IntPtr.Zero, _startRect.Left + now.X - _pressAt.X, _startRect.Top + now.Y - _pressAt.Y, 0, 0,
+                        SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
                 return IntPtr.Zero;
             case WM_LBUTTONUP:
                 if (!_pressed) return IntPtr.Zero;
@@ -151,4 +211,7 @@ internal sealed class WidgetWindow : NativeWindow
     [DllImport("user32.dll")] private static extern IntPtr SetCapture(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowW(string? className, string? windowName);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
+    private const uint GW_HWNDPREV = 3;
 }

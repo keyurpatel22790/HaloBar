@@ -30,6 +30,13 @@ internal sealed class HomePanel : Panel
         _editScroll = 0;
     })];
 
+    /// <summary>Leaving the island (or the tab) ends editing; every choice is already saved.</summary>
+    public override void Closed()
+    {
+        _editing = false;
+        _editScroll = 0;
+    }
+
     public override double FrameInterval
     {
         get
@@ -275,8 +282,9 @@ internal sealed class HomePanel : Panel
     private void Pin(Tile tile)
     {
         var place = Pinned.FirstOrDefault(p => p.Tile == tile.Id);
-        if (place == null) Pinned.Add(new DesktopWidgetPlace { Tile = tile.Id, Wide = tile.WideByDefault });
-        else if (place.Wide == tile.WideByDefault)
+        // On the desktop a widget always starts at the normal width; the next click makes it wide.
+        if (place == null) Pinned.Add(new DesktopWidgetPlace { Tile = tile.Id });
+        else if (!place.Wide)
         {
             // Same spot, other width: a new entry so the widget window is rebuilt at its new size.
             Pinned[Pinned.IndexOf(place)] = new DesktopWidgetPlace { Tile = place.Tile, X = place.X, Y = place.Y, Wide = !place.Wide };

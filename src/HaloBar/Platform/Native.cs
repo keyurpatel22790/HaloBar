@@ -161,6 +161,24 @@ internal static class Native
     [DllImport("kernel32.dll")] public static extern nuint GlobalSize(IntPtr mem);
     [DllImport("kernel32.dll")] public static extern IntPtr GlobalFree(IntPtr mem);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint DragQueryFileW(IntPtr drop, uint index, char[]? file, uint size);
+    [DllImport("shell32.dll")] public static extern void DragAcceptFiles(IntPtr hwnd, bool accept);
+    [DllImport("shell32.dll")] public static extern void DragFinish(IntPtr drop);
+    public const uint WM_DROPFILES = 0x233;
+
+    /// <summary>The paths in a CF_HDROP / WM_DROPFILES handle.</summary>
+    public static string[] DroppedFiles(IntPtr drop)
+    {
+        var count = DragQueryFileW(drop, 0xFFFFFFFF, null, 0);
+        var files = new string[count];
+        for (uint i = 0; i < count; i++)
+        {
+            var len = DragQueryFileW(drop, i, null, 0);
+            var buffer = new char[len + 1];
+            DragQueryFileW(drop, i, buffer, len + 1);
+            files[i] = new string(buffer, 0, (int)len);
+        }
+        return files;
+    }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern bool Shell_NotifyIconW(uint message, ref NOTIFYICONDATAW data);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessageW(string name);
@@ -177,7 +195,18 @@ internal static class Native
     public const uint WM_KILLFOCUS = 0x8, WM_KEYDOWN = 0x100, WM_CHAR = 0x102, WM_SYSKEYDOWN = 0x104;
     public const int MA_ACTIVATE = 1;
     [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetFocus();
     [DllImport("user32.dll")] public static extern short GetKeyState(int vk);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
+    public const int SM_SWAPBUTTON = 23;
+    [DllImport("user32.dll")] public static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint ms, IntPtr callback);
+    [DllImport("user32.dll")] public static extern bool KillTimer(IntPtr hwnd, UIntPtr id);
+    public const uint WM_TIMER = 0x113;
+
+    /// <summary>The primary (usually left) mouse button is held right now, whatever messages have arrived.</summary>
+    public static bool PrimaryButtonDown() =>
+        (GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) != 0 ? 0x02 : 0x01) & 0x8000) != 0;
     [DllImport("winmm.dll", CharSet = CharSet.Unicode)] public static extern bool PlaySound(string? sound, IntPtr module, uint flags);
     public const uint SND_ALIAS = 0x10000, SND_ASYNC = 0x1, SND_NODEFAULT = 0x2;
 
@@ -185,9 +214,6 @@ internal static class Native
     [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
     [DllImport("gdi32.dll")] public static extern uint GetPixel(IntPtr hdc, int x, int y);
     [DllImport("ole32.dll")] public static extern int OleInitialize(IntPtr reserved);
-    [DllImport("ole32.dll")] public static extern int RegisterDragDrop(IntPtr hwnd, [MarshalAs(UnmanagedType.Interface)] object target);
-    [DllImport("ole32.dll")] public static extern int RevokeDragDrop(IntPtr hwnd);
-    [DllImport("ole32.dll")] public static extern void ReleaseStgMedium(ref System.Runtime.InteropServices.ComTypes.STGMEDIUM medium);
     [DllImport("shell32.dll")] public static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid id, uint flags, IntPtr token, out IntPtr path);
 
     /// <summary>A known folder (Downloads, Pictures…) by its FOLDERID.</summary>

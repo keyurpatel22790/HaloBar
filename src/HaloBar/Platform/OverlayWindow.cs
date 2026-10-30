@@ -111,11 +111,14 @@ internal sealed class OverlayWindow : NativeWindow
 
     /// <summary>Window-relative pixel coordinates.</summary>
     public event Action<int, int>? MouseUp;
+    public event Action<int, int>? MouseDown;
     public event Action<int>? MouseWheel;
     public event Action? DpiChanged;
     public event Action<char>? CharTyped;
     public event Action<int>? KeyPressed;
     public event Action? FocusLost;
+    /// <summary>Files dropped on the window (Windows' WM_DROPFILES).</summary>
+    public event Action<string[]>? FilesDropped;
 
     private bool _typing;
 
@@ -150,6 +153,10 @@ internal sealed class OverlayWindow : NativeWindow
         SetLayeredWindowAttributes(Handle, 0, 255, LWA_ALPHA);
         Place(monitor);
         ShowWindow(Handle, 4 /* SW_SHOWNOACTIVATE */);
+        // Files dropped from Explorer arrive as one posted message. (An OLE drop target needs
+        // Explorer to call into this process while the drag hovers, and those calls never got
+        // through to the island.)
+        DragAcceptFiles(Handle, true);
     }
 
     private float _size = 1;
@@ -233,11 +240,20 @@ internal sealed class OverlayWindow : NativeWindow
             case WM_SETCURSOR:
                 SetCursor(LoadCursorW(IntPtr.Zero, IDC_HAND));
                 return new IntPtr(1);
+            case WM_LBUTTONDOWN:
+                MouseDown?.Invoke(LoWord(lParam), HiWord(lParam));
+                return IntPtr.Zero;
             case WM_LBUTTONUP:
                 MouseUp?.Invoke(LoWord(lParam), HiWord(lParam));
                 return IntPtr.Zero;
             case WM_MOUSEWHEEL:
                 MouseWheel?.Invoke(HiWord(wParam));
+                return IntPtr.Zero;
+            case WM_DROPFILES:
+                var files = DroppedFiles(wParam);
+                DragFinish(wParam);
+                Log.Write($"Drop: {files.Length} file(s) dropped");
+                if (files.Length > 0) FilesDropped?.Invoke(files);
                 return IntPtr.Zero;
             case WM_DPICHANGED:
                 DpiChanged?.Invoke();
