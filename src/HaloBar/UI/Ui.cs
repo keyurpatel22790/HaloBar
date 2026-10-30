@@ -98,21 +98,21 @@ internal sealed class Ui(Theme theme, Action<TextField> focus, Func<TextField?> 
         Theme.Weight weight = Theme.Weight.Regular, SKColor? color = null, SKTextAlign align = SKTextAlign.Left)
     {
         // Clean before picking a font, or an invisible mark could pull in a fallback face.
-        text = Theme.Visible(text);
+        text = Lang.T(Theme.Visible(text));
         using var font = Theme.Font(size, weight, text);
         Theme.DrawLine(Canvas, text, x, baseline, maxWidth, font, color ?? Theme.Text, align);
     }
 
     public void Wrapped(string text, float x, float top, float maxWidth, int maxLines, float size, SKColor? color = null)
     {
-        text = Theme.Visible(text);
+        text = Lang.T(Theme.Visible(text));
         using var font = Theme.Font(size, Theme.Weight.Regular, text);
         Theme.DrawWrapped(Canvas, text, x, top, maxWidth, maxLines, font, color ?? Theme.Text);
     }
 
     public float Measure(string text, float size, Theme.Weight weight = Theme.Weight.Regular)
     {
-        text = Theme.Visible(text);
+        text = Lang.T(Theme.Visible(text));
         using var font = Theme.Font(size, weight, text);
         return font.MeasureText(text);
     }

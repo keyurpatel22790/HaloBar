@@ -10,6 +10,8 @@ internal sealed class AppSettings
 
     /// <summary>Keeps the island out of screenshots, recordings and screen sharing.</summary>
     public bool HideFromCapture { get; set; }
+    /// <summary>A code from <see cref="UI.Lang.Available"/>; "auto" follows Windows.</summary>
+    public string Language { get; set; } = "auto";
     public bool HideInFullscreen { get; set; } = true;
     /// <summary>Hide Windows' own volume pop-up; the island's HUD replaces it.</summary>
     public bool ReplaceVolumePopup { get; set; } = true;

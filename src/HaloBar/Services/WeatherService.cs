@@ -16,7 +16,7 @@ internal sealed record WeatherSnapshot(string Place, double Temperature, int Cod
 
     public string Describe() => Code switch
     {
-        0 => IsDay ? "Clear" : "Clear night",
+        0 => IsDay ? "Clear sky" : "Clear night",
         1 => "Mostly clear",
         2 => "Partly cloudy",
         3 => "Cloudy",

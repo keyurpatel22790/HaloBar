@@ -1,6 +1,6 @@
-# Pending work (updated 2026-10-29)
+# Pending work (updated 2026-10-30)
 
-Items 1–5 and 7–9 are committed on `main`. Item 6 (languages) is in progress.
+All nine items are built and committed on `main`. Publishing (below) is next, when you decide.
 The repo is `github.com/keyurpatel22790/HaloBar` (private); push only when asked.
 
 ## To build, in this order
@@ -45,11 +45,13 @@ The repo is `github.com/keyurpatel22790/HaloBar` (private); push only when asked
    - Checked: a 5-second test recording plays as 1920×1080 H.264 + AAC, the right way up, correct colours.
    - Not built: microphone (mixing it with system sound), choosing a window or area, and turning off Windows' yellow capture border (needs a newer Windows SDK target).
 
-6. **Languages**
-   - Wrap every visible string in a lookup keyed by the English text.
-   - Add 20 translation files (ar, cs, de, es, fr, hi, id, it, ja, ko, nl, pl, pt-BR, ru, th, tr, uk, vi, zh-Hans, zh-Hant).
-   - Add a "Language" setting, defaulting to the Windows language.
-   - Text shaping for Arabic, Hindi, Gujarati and Thai is already in (SkiaSharp.HarfBuzz, 2026-10-26).
+6. **Languages** *(done 2026-10-30)*
+   - 21 languages besides English: ar, cs, de, es, fr, gu, hi, id, it, ja, ko, nl, pl, pt-BR, ru, th, tr, uk, vi, zh-Hans, zh-Hant. Settings › Island › Language (default: Windows language).
+   - Text is translated where it's drawn: `Lang.T` in `Ui.Text`/`Wrapped`/`Measure` and the tray menu, keyed by the English text. Text with numbers or names in it matches templates like `{0} days to go`. Dates and numbers follow the language's culture.
+   - `tools/extract_strings.py` collects the English text into `Languages/en.txt`; `tools/translate.py` machine-translates only new strings and keeps everything already in a file, so hand fixes stay.
+   - Translations were machine-made, then corrected by context: brand, key and protocol names kept as written, and "island"/"pill" written as each language's Dynamic Island term (灵动岛, 動態島, "Dynamic Island", Island, आइलैंड…). A full review covered gu, hi, ar, cs, de, es, fr, id, it, ja, ko, nl, pl, pt-BR; a shorter one covered ru, uk, tr, vi, th, zh-Hans, zh-Hant.
+   - Checked on the island in Gujarati (Home, Settings, Controls, Agents). Arabic text isn't mirrored right-to-left in the layout.
+   - Text that's built by joining pieces in code (not interpolation) stays English; most are converted.
 
 7. **Windows banner control** *(done 2026-10-26)*
    - Settings › Island › "Turn off Windows banners" (off by default). While it's on, each app whose notification HaloBar shows gets `ShowBanner=0` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\<app id>`; switching it on also covers apps already in the island's notification list.

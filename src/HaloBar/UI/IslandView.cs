@@ -598,9 +598,13 @@ internal sealed class IslandView
         right -= _ui.Measure(clock, 12) + 16;
         foreach (var (label, click) in _panel.Actions.Reverse())
         {
-            var w = _ui.Measure(label, 12);
-            if (right - w < x + 8) break;
-            _ui.Text(label, right, y + 4.5f, w + 4, 12, Theme.Weight.Regular, _theme.Accent, SKTextAlign.Right);
+            // A label longer than the room left (some languages' words are long) shrinks a little,
+            // then is cut short, rather than disappearing.
+            var space = right - (x + 8);
+            if (space < 28) break;
+            var size = _ui.Measure(label, 12) <= space ? 12f : 10.5f;
+            var w = Math.Min(_ui.Measure(label, size), space);
+            _ui.Text(label, right, y + 4.5f, w + 4, size, Theme.Weight.Regular, _theme.Accent, SKTextAlign.Right);
             _ui.Hit(new SKRect(right - w - 6, y - 13, right + 6, y + 13), click);
             right -= w + 16;
         }

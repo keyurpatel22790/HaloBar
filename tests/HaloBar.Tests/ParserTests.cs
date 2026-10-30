@@ -273,6 +273,52 @@ public class WebSiteTests
     public void Ignores_text_without_an_address(string text) => Assert.Null(HaloBar.Platform.WebSite.FromTyped(text));
 }
 
+public class LanguageTests
+{
+    [Fact]
+    public void Shows_text_in_the_chosen_language()
+    {
+        // The expected text comes from the language file itself, so improving a translation never breaks this.
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!Directory.Exists(Path.Combine(root.FullName, "src", "HaloBar", "Languages"))) root = root.Parent!;
+        var gu = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(
+            File.ReadAllText(Path.Combine(root.FullName, "src", "HaloBar", "Languages", "gu.json")))!;
+        try
+        {
+            Lang.Use("gu");
+            Assert.Equal("gu", Lang.Current);
+            Assert.Equal(gu["Settings"], Lang.T("Settings"));
+            Assert.Equal(gu["+{0} more"].Replace("{0}", "3"), Lang.T("+3 more"));                 // a template with a number in it
+            Assert.Equal(gu["Finding {0}…"].Replace("{0}", "Ahmedabad"), Lang.T("Finding Ahmedabad…"));
+            Assert.Equal("Shape of You", Lang.T("Shape of You"));                                  // not ours: left alone
+            Lang.Use("en");
+            Assert.Equal("Settings", Lang.T("Settings"));
+        }
+        finally
+        {
+            Lang.Use("en");
+        }
+    }
+
+    [Fact]
+    public void Every_translation_keeps_its_placeholders()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!Directory.Exists(Path.Combine(root.FullName, "src", "HaloBar", "Languages"))) root = root.Parent!;
+        var folder = Path.Combine(root.FullName, "src", "HaloBar", "Languages");
+        foreach (var file in Directory.GetFiles(folder, "*.json"))
+        {
+            var table = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(file))!;
+            foreach (var (en, translated) in table)
+            {
+                var want = System.Text.RegularExpressions.Regex.Matches(en, @"\{\d+\}").Select(m => m.Value).Order();
+                var got = System.Text.RegularExpressions.Regex.Matches(translated, @"\{\d+\}").Select(m => m.Value).Order();
+                Assert.True(want.SequenceEqual(got), $"{Path.GetFileName(file)}: \"{en}\" → \"{translated}\"");
+            }
+        }
+    }
+}
+
 public class StatsTests
 {
     [Theory]

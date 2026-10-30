@@ -67,12 +67,12 @@ internal sealed class ControlsPanel(Hub hub, ControlsService controls) : Panel(h
 
         // Devices.
         y = body.Top + 100;
-        var chip = ui.Chip(body.Left + 18, y, "Speaker  ·  " + Short(_output), () =>
+        var chip = ui.Chip(body.Left + 18, y, $"Speaker  ·  {Short(_output)}", () =>
         {
             _output = ControlsService.CycleDefault(DataFlow.Render);
             if (_output != null) Hub.ShowHud(new Hud(HudIcon.Volume, _output, Detail: "Output"));
         }, size: 11.5f);
-        ui.Chip(chip.Right + 8, y, "Mic  ·  " + Short(_input), () =>
+        ui.Chip(chip.Right + 8, y, $"Mic  ·  {Short(_input)}", () =>
         {
             _input = ControlsService.CycleDefault(DataFlow.Capture);
             if (_input != null) Hub.ShowHud(new Hud(HudIcon.Mic, _input, Detail: "Input"));

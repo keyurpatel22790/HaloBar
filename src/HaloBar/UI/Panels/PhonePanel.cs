@@ -34,7 +34,7 @@ internal sealed class PhonePanel(Hub hub, PhoneShareService phone) : Panel(hub)
         ui.Text("Same Wi-Fi as this PC. Download what's on the shelf, or send photos and files here.", x0, body.Top + 40, width, 11.5f, Theme.Weight.Regular, Theme.Dim);
         if (phone.Url != null) ui.Text(phone.Url, x0, body.Top + 62, width, 11, Theme.Weight.Regular, Theme.Accent);
         var shelf = Hub.Shelf.Files.Count;
-        ui.Text(shelf == 0 ? "Nothing on the shelf yet: drop files on the island to share them." : $"{shelf} file{(shelf == 1 ? "" : "s")} on the shelf to download.",
+        ui.Text(shelf == 0 ? "Nothing on the shelf yet: drop files on the island to share them." : shelf == 1 ? "1 file on the shelf to download." : $"{shelf} files on the shelf to download.",
             x0, body.Top + 86, width, 11.5f, Theme.Weight.Regular, Theme.Text);
         ui.Text($"Uploads go to {phone.UploadFolder}", x0, body.Top + 104, width, 10.5f, Theme.Weight.Regular, Theme.Faint);
         if (phone.NetworkIsPublic)
