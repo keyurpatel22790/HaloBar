@@ -74,7 +74,10 @@ internal sealed class IslandScreen : IDisposable
     private bool _backdropFailed;
     private GraphicsDevice _gfx;
     private IGlassSource? _glass;
-    private bool _glassFailed, _excluded;
+    private bool _excluded;
+    /// <summary>After the screen reader stops (PC locked, display mode change), when to try a fresh one.</summary>
+    private DateTime _glassRetryAt;
+    private double _glassRetrySeconds = 5;
 
     public IslandScreen(OverlayWindow window, GraphicsDevice gfx, IslandView view)
     {
@@ -89,7 +92,7 @@ internal sealed class IslandScreen : IDisposable
         _gfx = gfx;
         _glass?.Dispose();
         _glass = null;
-        _glassFailed = false;
+        _glassRetryAt = default;
         DropCanvas();
         Surface.Dispose();
         Surface = new CompositionSurface(gfx, Window.Handle, Window.Width, Window.Height);
@@ -147,7 +150,7 @@ internal sealed class IslandScreen : IDisposable
     {
         // While HaloBar records the screen the island must be in the video, and glass needs it
         // kept out of captures; it uses Windows' own blur until the recording stops.
-        var want = View.WantsGlass && !_glassFailed && !Recording;
+        var want = View.WantsGlass && DateTime.Now >= _glassRetryAt && !Recording;
         var exclude = want || View.HideFromCapture;
         if (exclude != _excluded)
         {
@@ -162,7 +165,10 @@ internal sealed class IslandScreen : IDisposable
         _glass ??= (IGlassSource?)GlassBackdrop.Create(_gfx, Monitor.Handle) ?? new ScreenCopyBackdrop();
         if (_glass == null || !_glass.Working)
         {
-            _glassFailed = true; // Windows' own blur from now on, as before
+            // Windows' own blur for a few seconds, then a fresh reader: duplication and screen copies
+            // stop while the PC is locked or a display changes mode, and work again after.
+            _glassRetryAt = DateTime.Now.AddSeconds(_glassRetrySeconds);
+            _glassRetrySeconds = Math.Min(60, _glassRetrySeconds * 2); // a locked PC: try less often
             _glass?.Dispose();
             _glass = null;
             View.Glass = null;
@@ -184,7 +190,11 @@ internal sealed class IslandScreen : IDisposable
         var area = _glass.Area;
         View.GlassArea = new SKRect((area.Left - w.Left) / s, (area.Top - w.Top) / s, (area.Right - w.Left) / s, (area.Bottom - w.Top) / s);
         // How bright it is behind, for auto text colour (measured on the copier's thread).
-        if (picture != null) View.Theme.BehindBrightness = _glass.Brightness;
+        if (picture != null)
+        {
+            View.Theme.BehindBrightness = _glass.Brightness;
+            _glassRetrySeconds = 5;
+        }
     }
 
     private int _shownVersion = -1;
@@ -321,7 +331,6 @@ internal sealed class IslandApp : IDisposable
             Profiles = new ProfileService(settings, _controls, settings.Save, ApplyLayout),
             Network = new NetworkHealth(() => settings.NetworkWatch),
             Layouts = new LayoutService(settings, settings.Save),
-            Tv = new TvDevModeService(settings),
             Agents = _agents,
             Launcher = _launcher,
             Obs = _obs,
@@ -757,8 +766,6 @@ internal sealed class IslandApp : IDisposable
             ? new Hud(HudIcon.Info, "Back online", Detail: h.Network.PingMs is { } ms ? $"{ms} ms" : null)
             : new Hud(HudIcon.Info, "Internet is down", Detail: "HaloBar tells you when it's back", Tint: Red), TimeSpan.FromSeconds(3)));
         h.Network.Start();
-        h.Tv.Failed += why => Post(() => ShowNotice(new Notice("LG TV", "Developer Mode not renewed", why, null, DateTime.Now)));
-        h.Tv.Start();
         h.Power.Changed += () => Post(CheckChargeLimit);
         h.Web.Focusing = () => h.Timer.Phase == TimerPhase.Focus && !h.Timer.Paused;
         h.Bluetooth.Changed += Invalidate;
@@ -1635,7 +1642,6 @@ internal sealed class IslandApp : IDisposable
         _hub.Stats.Dispose();
         _hub.Calendar.Dispose();
         _hub.Network.Dispose();
-        _hub.Tv.Dispose();
         _hub.Lyrics.Dispose();
         _hub.Downloads.Dispose();
         _hub.Ticker.Dispose();

@@ -309,6 +309,7 @@ Glass lens
 Glass screen copy
 Glass, Frost and Candy: lower is clearer, higher is frostier
 Glob
+Glow around videos
 Good
 Graphite
 Green
@@ -371,6 +372,7 @@ Lavender
 Layout {0}
 Layouts
 Left
+Light in the page around the player, in the video's colours, like ambient light strips; for pages opened from now on
 Lilac
 Listing apps…
 Live
@@ -880,6 +882,9 @@ Yesterday
 YouTube live chat
 Your microphone is open in this app.
 Your voice, mixed with the PC's sound
+\uE921
+\uE922
+\uE923
 ar-AE
 at 9
 bad request

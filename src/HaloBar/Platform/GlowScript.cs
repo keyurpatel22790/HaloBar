@@ -1,7 +1,7 @@
 namespace HaloBar.Platform;
 
 /// <summary>
-/// Light around the video inside the page, in the colours of the picture, like strips behind a TV.
+/// Light around the video inside the page, in the colours of the picture, like ambient light strips.
 /// A small canvas shows the current frame stretched past the player and heavily blurred, lightening
 /// the page around the player (screen blend) with the player itself cut out, so the video is
 /// untouched. It sits under YouTube's top bar and menus, and is off in full screen. Runs in the page;
