@@ -769,6 +769,7 @@ internal sealed class IslandApp : IDisposable
         });
         h.Downloads.Start();
         h.Clipboard.PictureAdded += OnPictureCopied;
+        h.Clipboard.TextAdded += OnTextCopied;
         h.Weather.Changed += Invalidate;
         h.Weather.Start();
         h.Stats.Changed += Invalidate;
@@ -1031,6 +1032,29 @@ internal sealed class IslandApp : IDisposable
         _snipRequestedAt = DateTime.Now;
         _snipPurpose = purpose;
         Open("ms-screenclip:");
+    }
+
+    /// <summary>The last result a clipboard action copied: copying it isn't news.</summary>
+    private string? _insightCopied;
+
+    /// <summary>Copied maths, units, money, colours or links: the result on the pill, a click copies or opens it.</summary>
+    private void OnTextCopied(string text)
+    {
+        if (!_settings.ClipboardActions || text == _insightCopied) return;
+        _ = Task.Run(async () =>
+        {
+            if (await ClipSense.LookAsync(text, _settings) is not { } insight) return;
+            Post(() => ShowNotice(new Notice("Clipboard", insight.Title, insight.Detail, null, DateTime.Now, Click: () =>
+            {
+                if (insight.Open is { } url) Open(url);
+                else if (insight.Copy is { } result)
+                {
+                    _insightCopied = result;
+                    _hub.Clipboard.CopyText(result);
+                    ShowHud(new Hud(HudIcon.Copied, result, Detail: "Copied"));
+                }
+            })));
+        });
     }
 
     private void OnPictureCopied(ClipEntry entry)

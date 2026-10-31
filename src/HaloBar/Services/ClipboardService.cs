@@ -39,6 +39,8 @@ internal sealed class ClipboardService
     public event Action? Changed;
     /// <summary>A picture was copied (screenshots arrive this way).</summary>
     public event Action<ClipEntry>? PictureAdded;
+    /// <summary>Text was copied (putting an entry back from the history doesn't count).</summary>
+    public event Action<string>? TextAdded;
 
     /// <param name="post">Runs an action on the window thread.</param>
     public ClipboardService(IntPtr hwnd, int capacity, Action<Action> post)
@@ -113,6 +115,7 @@ internal sealed class ClipboardService
         Save();
         Changed?.Invoke();
         if (entry.Kind == ClipKind.Image) PictureAdded?.Invoke(entry);
+        if (entry.Kind == ClipKind.Text && entry.Content.Text is { } text) TextAdded?.Invoke(text);
     }
 
     /// <summary>Puts an old entry back on the clipboard and moves it to the front.</summary>

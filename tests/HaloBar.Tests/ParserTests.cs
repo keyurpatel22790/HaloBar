@@ -637,6 +637,8 @@ public class ShellThumbnailTests
     }
 }
 
+// Prefs is global: these classes change it, so they never run at the same time.
+[Collection("Prefs")]
 public class PrefsTests
 {
     [Fact]
@@ -704,6 +706,7 @@ public class AdBlockerTests
         Assert.Equal(blocked, HaloBar.Platform.AdBlocker.Blocks(url));
 }
 
+[Collection("Prefs")]
 public class ProfileTests
 {
     [Fact]
@@ -838,5 +841,53 @@ public class BatteryReportTests
         Assert.True(wear.DesignMwh > 0 && wear.FullMwh > 0);
         Assert.InRange(wear.Health, 0.05, 1.0);
         Assert.NotEmpty(wear.History);
+    }
+}
+
+public class ClipSenseTests
+{
+    private static ClipInsight? Look(string text) => ClipSense.LookAsync(text, new AppSettings { CurrencyBase = "USD", CurrencyTargets = "INR, EUR" }).Result;
+
+    [Theory]
+    [InlineData("12*34+5", "413")]
+    [InlineData("(2+3)*4", "20")]
+    [InlineData("100 / 8", "12.5")]
+    public void Maths(string text, string result) => Assert.Equal(result, Look(text)?.Copy);
+
+    [Theory]
+    [InlineData("5 mi to km", "km")]
+    [InlineData("70 kg", "lb")]
+    [InlineData("100°F", "°C")]
+    [InlineData("6 ft", "m")]
+    public void Units(string text, string unit) => Assert.EndsWith(unit, Look(text)?.Copy);
+
+    [Fact]
+    public void Colours()
+    {
+        Assert.Equal("rgb(13, 13, 13)", Look("#0D0D0D")?.Copy);
+        Assert.Equal("#FF8800", Look("rgb(255, 136, 0)")?.Copy);
+    }
+
+    [Fact]
+    public void Links() => Assert.Equal("https://example.com/a?b=1", Look("https://example.com/a?b=1")?.Open);
+
+    [Theory]
+    [InlineData("2026-10-31")]       // a date, not 2026 minus 10 minus 31
+    [InlineData("31/10/2026")]
+    [InlineData("98765-43210")]      // a phone number
+    [InlineData("+91 98765 43210")]
+    [InlineData("1.2.3")]            // a version
+    [InlineData("10:30")]            // a time
+    [InlineData("hello world")]
+    [InlineData("42")]
+    [InlineData("Meeting at 5pm")]
+    public void LeavesOrdinaryTextAlone(string text) => Assert.Null(Look(text));
+
+    [Fact]
+    public void Money()
+    {
+        // Live rates: offline there's no result, otherwise it's in the first other currency (INR).
+        if (Look("$100") is { } dollars) Assert.EndsWith("INR", dollars.Copy);
+        if (Look("2.5k EUR") is { } euros) Assert.EndsWith("USD", euros.Copy);
     }
 }

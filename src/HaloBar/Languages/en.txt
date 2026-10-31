@@ -167,6 +167,7 @@ Click to turn Night light off
 Click to write
 Clipboard
 Clipboard Viewer Ignore
+Clipboard actions
 Clipboard history
 Clipboard is empty
 Close page
@@ -185,6 +186,7 @@ Controls
 Convert
 Cookie
 Copied
+Copied maths, units, money, colours and links get a result on the pill; click to copy or open it
 Copied text on the phone page
 Copied · on the shelf
 Copy text from the screen
@@ -380,6 +382,7 @@ Layouts
 Left
 Light in the page around the player, in the video's colours, like ambient light strips; for pages opened from now on
 Lilac
+Link copied
 Listing apps…
 Live
 Loading rates…
@@ -927,6 +930,7 @@ mi²
 mutes and unmutes
 needs package identity
 not started
+rgb({0}, {1}, {2})
 rgb({0}, {1}, {2}) · copied
 shell:AppsFolder
 shell:AppsFolder\{0}
@@ -984,6 +988,7 @@ zh-TW
 {0} weeks {1} days
 {0} windows placed
 {0} would get in the way of typing; add Ctrl, Alt or Win
+{0} {1} to {2}
 {0} · HaloBar
 {0} · copied; click to open
 {0} · on the shelf; click to open
