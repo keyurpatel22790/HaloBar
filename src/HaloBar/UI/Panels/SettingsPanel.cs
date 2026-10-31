@@ -181,6 +181,9 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Local API", $"Scripts post notices to 127.0.0.1:{s.NotifyPort}; takes effect after a restart", () => s.NotifyEndpoint, v => s.NotifyEndpoint = v),
             Toggle("Do not disturb", "Notifications, chat and agent pings wait in the list", () => s.DoNotDisturb, v => s.DoNotDisturb = v),
             Toggle("Quiet during focus", "Do not disturb while the focus timer runs", () => s.QuietDuringFocus, v => s.QuietDuringFocus = v),
+            Toggle("Quiet during meetings", "While a calendar meeting is on; per-app rules can also keep things quiet while an app is in front",
+                () => s.QuietInMeetings, v => s.QuietInMeetings = v),
+            Toggle("Weekly screen-time report", "On the first day of a new week: last week's time, top apps and focus", () => s.WeeklyReport, v => s.WeeklyReport = v),
             Named("Block sites during focus", "Web windows won't open them while the timer runs",
                 [("instagram.com, facebook.com, x.com, reddit.com", "Social sites"),
                  ("instagram.com, facebook.com, x.com, reddit.com, youtube.com", "Social sites and YouTube"), ("", "None")],
@@ -380,7 +383,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
     private IEnumerable<Row> AppRuleRows()
     {
         var s = Hub.Settings;
-        string[] options = ["normal", "slim", "hide"];
+        string[] options = ["normal", "slim", "hide", "quiet"];
         Row RuleRow(string process, string? hint) => new(process, hint, () =>
             s.AppRules.FirstOrDefault(r => r.Process.Equals(process, StringComparison.OrdinalIgnoreCase))?.Behaviour ?? "normal", () =>
         {
@@ -393,7 +396,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
         });
         var front = Hub.FrontApp;
         if (front.Length > 0 && !s.AppRules.Any(r => r.Process.Equals(front, StringComparison.OrdinalIgnoreCase)))
-            yield return RuleRow(front, "the app in front: click to slim or hide the island over it");
+            yield return RuleRow(front, "the app in front: click to slim or hide the island over it, or keep notifications quiet while it's in front");
         foreach (var rule in s.AppRules.ToList()) yield return RuleRow(rule.Process, null);
     }
 

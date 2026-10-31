@@ -225,7 +225,7 @@ internal sealed class ScreenTimeTile(Hub hub) : Tile(hub)
         var half = t.Width > 200 ? new SKRect(t.Left, t.Top, t.MidX, t.Bottom) : t;
         Heading(ui, half, "Screen time");
         ui.Text(SystemInfo.Span(st.Today), half.Left + 12, t.Top + 58, half.Width - 24, 24, Theme.Weight.Bold);
-        ui.Text("today", half.Left + 12, t.Top + 74, half.Width - 24, 10.5f, Theme.Weight.Regular, Theme.Dim);
+        ui.Text($"today · {SystemInfo.Span(st.ThisWeek)} this week", half.Left + 12, t.Top + 74, half.Width - 24, 10.5f, Theme.Weight.Regular, Theme.Dim);
         var over = st.Session >= st.BreakEvery;
         ui.Text(over ? "Take a break" : $"{SystemInfo.Span(st.Session)} since a break", half.Left + 12, t.Top + 100, half.Width - 24, 10.5f,
             Theme.Weight.SemiBold, over ? Warn : Theme.Text);
@@ -251,14 +251,7 @@ internal sealed class ScreenTimeTile(Hub hub) : Tile(hub)
         }
     }
 
-    private static string Pretty(string process) =>
-        process.ToLowerInvariant() switch
-        {
-            "code" => "VS Code", "msedge" => "Edge", "chrome" => "Chrome", "firefox" => "Firefox", "explorer" => "Explorer",
-            "windowsterminal" => "Terminal", "devenv" => "Visual Studio", "winword" => "Word", "excel" => "Excel",
-            "powerpnt" => "PowerPoint", "olk" or "outlook" => "Outlook", "ms-teams" => "Teams", "claude" => "Claude",
-            _ => process.Length > 0 ? char.ToUpperInvariant(process[0]) + process[1..] : process,
-        };
+    private static string Pretty(string process) => ScreenTimeService.Pretty(process);
 }
 
 /// <summary>Free space on each drive.</summary>

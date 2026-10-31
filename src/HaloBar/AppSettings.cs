@@ -112,6 +112,14 @@ internal sealed class AppSettings
     public string ScreenTimeDay { get; set; } = "";
     public int ScreenTimeSeconds { get; set; }
     public Dictionary<string, int> ScreenTimeApps { get; set; } = [];
+    /// <summary>Earlier days' screen time (the last five weeks), for the weekly report.</summary>
+    public List<Services.ScreenDay> ScreenTimeHistory { get; set; } = [];
+    /// <summary>The Monday ("yyyy-MM-dd") of the week the last weekly report was shown in.</summary>
+    public string LastWeeklyReport { get; set; } = "";
+    /// <summary>A short summary of last week's screen time on the first day of a new week.</summary>
+    public bool WeeklyReport { get; set; } = true;
+    /// <summary>Notifications wait (and focus sites stay closed) while a calendar meeting is on.</summary>
+    public bool QuietInMeetings { get; set; } = true;
 
     // Shelf and activities.
     public List<Services.SavedShelfFile> ShelfFiles { get; set; } = [];
