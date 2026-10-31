@@ -61,6 +61,10 @@ internal sealed class AppSettings
     /// <summary>Apps seen playing, app id → name, for the switches in Settings.</summary>
     public Dictionary<string, string> MusicSeen { get; set; } = [];
     public bool ShowLyrics { get; set; } = true;
+    /// <summary>The line being sung on the closed pill, in place of the title.</summary>
+    public bool LyricsInPill { get; set; } = true;
+    /// <summary>Rain, snow, fog, stars and sunset light inside the island, from the live weather.</summary>
+    public bool WeatherEffects { get; set; } = true;
     /// <summary>"bars" or "pixels": what plays beside the artwork on the pill.</summary>
     public string Visualizer { get; set; } = "bars";
     /// <summary>"simple", "wave", "pixels", "comet" or "hearts".</summary>
