@@ -207,6 +207,14 @@ internal static class Native
     /// <summary>The primary (usually left) mouse button is held right now, whatever messages have arrived.</summary>
     public static bool PrimaryButtonDown() =>
         (GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) != 0 ? 0x02 : 0x01) & 0x8000) != 0;
+
+    /// <summary>
+    /// Something is being dragged the shell's way (files from Explorer, most apps): Windows shows
+    /// the dragged items' picture in a "SysDragImage" window while it lasts.
+    /// </summary>
+    public static bool ShellDragImageShown() => FindWindowW("SysDragImage", null) is var h && h != IntPtr.Zero && IsWindowVisible(h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowW(string? className, string? title);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("winmm.dll", CharSet = CharSet.Unicode)] public static extern bool PlaySound(string? sound, IntPtr module, uint flags);
     public const uint SND_ALIAS = 0x10000, SND_ASYNC = 0x1, SND_NODEFAULT = 0x2;
 

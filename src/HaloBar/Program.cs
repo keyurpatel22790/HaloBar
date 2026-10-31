@@ -142,9 +142,9 @@ internal sealed class IslandScreen : IDisposable
     {
         // While HaloBar records the screen the island must be in the video, and glass needs it
         // kept out of captures; it uses Windows' own blur until the recording stops.
-        // Likewise while the screen may be shared (see Sharing), so the island shows in the share.
+        // Likewise when it's to show in screen sharing (Settings), since glass needs it kept out of captures.
         var want = View.WantsGlass && DateTime.Now >= _glassRetryAt && !Recording && !Sharing;
-        var exclude = want || View.HideFromCapture;
+        var exclude = !Sharing && !Recording;
         if (exclude != _excluded)
         {
             Window.SetCaptureExcluded(exclude);
@@ -219,7 +219,7 @@ internal sealed class IslandScreen : IDisposable
     }
     /// <summary>Set by the app while its screen recorder runs.</summary>
     public static bool Recording { get; set; }
-    /// <summary>Set by the app while the screen may be shared (per Settings › Show in screen sharing).</summary>
+    /// <summary>Settings › Show in screen sharing: the island stays visible to captures (and so has no glass).</summary>
     public static bool Sharing { get; set; }
 
     /// <summary>What the glass is reading, for the log.</summary>
@@ -1249,12 +1249,11 @@ internal sealed class IslandApp : IDisposable
             _layoutDirty = true;
             _settings.Save();
         }, _settings.AllMonitors),
-        new("Hide from screenshots and sharing", () =>
+        new("Show in screen sharing", () =>
         {
-            _settings.HideFromCapture = !_settings.HideFromCapture;
-            _layoutDirty = true;
+            _settings.ShowInSharing = !_settings.ShowInSharing;
             _settings.Save();
-        }, _settings.HideFromCapture),
+        }, _settings.ShowInSharing),
         new(Menu("Hide the island", "hide"), () => _userHidden = !_userHidden, _userHidden),
         TrayMenuItem.Separator,
         new($"Windows notifications: {_hub.Notifications.Status}", () => { }, Enabled: false),
@@ -1456,13 +1455,7 @@ internal sealed class IslandApp : IDisposable
             last = now;
             _theme.Tick(dt, _hub.Media.Snapshot?.Palette);
             IslandScreen.Recording = _hub.Recorder.Recording;
-            // A call (an app using the mic or camera) usually means the screen may be shared.
-            IslandScreen.Sharing = _settings.ShowWhenSharing switch
-            {
-                "always" => true,
-                "never" => false,
-                _ => _hub.Privacy.MicrophoneInUse || _hub.Privacy.CameraInUse,
-            };
+            IslandScreen.Sharing = _settings.ShowInSharing;
             CheckLockKeys();
             if (now >= nextSecond)
             {
@@ -1526,11 +1519,14 @@ internal sealed class IslandApp : IDisposable
                 var cursor = new SKPoint(cx / s.Window.Scale, cy / s.Window.Scale);
                 s.Interval = s.View.Update(dt, inside ? cursor : null, DateTime.Now);
                 s.Window.ClickThrough = !(inside && s.View.Contains(cursor)) && !s.View.IsTyping;
-                // A drop arrives as one message, with no notice while it hovers; a button held over
-                // the island that wasn't pressed on it is most likely a file on its way in.
+                // A drop arrives as one message, with no notice while it hovers. A button held over
+                // the island that wasn't pressed on it, while Windows shows a drag picture, is files
+                // on their way in. (Without the picture it was a window or a text selection being
+                // dragged past, which used to open the Files tab.)
                 var held = PrimaryButtonDown();
                 if (!held) s.PressedHere = false;
-                var carrying = held && inside && s.View.Contains(cursor) && !s.PressedHere && !ShellDrag.Active && _settings.ShelfEnabled;
+                var carrying = held && inside && s.View.Contains(cursor) && !s.PressedHere && !ShellDrag.Active && _settings.ShelfEnabled
+                               && ShellDragImageShown();
                 if (carrying != s.Carrying)
                 {
                     s.Carrying = carrying;

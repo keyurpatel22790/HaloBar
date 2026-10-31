@@ -49,6 +49,7 @@ Album colours on the music card
 Alert me when (; between)
 All
 All day
+Also screenshots and recordings. On, the Glass lens surface uses Windows' blur, since glass needs the island kept out of captures
 Alt
 Amount
 App rules
@@ -327,7 +328,6 @@ Hazardous
 Health {0}
 Here
 Hidden until hover
-Hide from screenshots and sharing
 Hide the Windows volume pop-up
 Hide the island
 Hide when something is full screen
@@ -696,6 +696,7 @@ Shell_TrayWnd
 Shift
 Show
 Show as a list
+Show in screen sharing
 Show it everywhere
 Show on every monitor
 Show or hide the web drawer
