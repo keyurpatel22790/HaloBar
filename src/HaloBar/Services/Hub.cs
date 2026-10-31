@@ -34,6 +34,7 @@ internal sealed class Hub
     public required ProfileService Profiles { get; init; }
     public required NetworkHealth Network { get; init; }
     public required LayoutService Layouts { get; init; }
+    public required TvDevModeService Tv { get; init; }
     public required AgentService Agents { get; init; }
     public required LauncherService Launcher { get; init; }
     public required ObsService Obs { get; init; }

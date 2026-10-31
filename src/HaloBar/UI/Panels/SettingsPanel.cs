@@ -215,6 +215,8 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Block ads", $"Ads and trackers on the drawer's sites, YouTube and YouTube Music included; for pages opened from now on ({Hub.Web.AdsBlocked} blocked so far)",
                 () => s.WebAdBlock, v => s.WebAdBlock = v),
             Toggle("Skip ads that get through", "Muted, sped up and skipped the moment YouTube allows", () => s.WebAdFastForward, v => s.WebAdFastForward = v),
+            Toggle("Glow around videos", "Light in the page around the player, in the video's colours, like strips behind a TV; for pages opened from now on",
+                () => s.WebGlow, v => s.WebGlow = v),
         ]);
         yield return ("Web extensions", [.. FolderRows(s.WebExtensions, "Add an unpacked extension",
             "A folder with a manifest.json; it loads the next time a site opens", f => File.Exists(Path.Combine(f, "manifest.json")))]);
