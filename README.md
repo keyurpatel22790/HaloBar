@@ -101,8 +101,7 @@ Hover the pill (or press `Ctrl+Alt+I`) and it opens into a card with tabs:
 
 ## Home tiles and desktop widgets
 
-28 tiles, on Home pages or pinned to the desktop as **widgets** (glass cards that stay above the
-wallpaper, also after Win+D):
+28 tiles, shown on Home pages in the island or pinned to the desktop as [widgets](#desktop-widgets):
 
 | Everyday | Information | Tools |
 |---|---|---|
@@ -110,8 +109,37 @@ wallpaper, also after Win+D):
 | World clock | CPU / GPU / RAM / network with temperatures | Currency converter |
 | Focus timer (today's focus minutes) | This PC, Storage, Network | Translator, Dictionary |
 | To-do, Note | Battery, **Battery health** (wear, cycles, capacity chart) | Stopwatch, Counter, Countdown |
-| Next meeting (calendar link) | Screen time | Git repositories, Docker |
+| Next meeting (calendar link) | Screen time (today and this week) | Git repositories, Docker |
 | Photos slideshow | Stocks & crypto ticker, with price alerts | |
+
+**On Home:** open the island's Home tab and press **Edit**. With **Island** selected, click a tile to
+add it, again to make it wide, again to remove it. Tiles fill pages of four; the dots under them
+switch pages (and the mouse wheel scrolls through them).
+
+### Desktop widgets
+
+![The Stats tile as a desktop widget](docs/screens/widget-stats.png)
+
+Any tile can also live on the desktop as a small glass card — a clock, the weather, the focus timer,
+your to-do list, the calculator or translator ready to type into, CPU and memory, a photo frame.
+
+- **Add one:** Home › **Edit** › **Desktop**, then click a tile to pin it to the desktop, again to make
+  it wide, again to unpin it. A new widget takes a free spot in tidy columns, so it never lands on
+  top of another one.
+- **Move it:** drag it anywhere, on any monitor; the place is remembered. A widget left off-screen
+  (after a monitor is unplugged, say) is brought back into view.
+- **Right-click it** for **Make wide / Make narrow** and **Remove from desktop**.
+- **Use it:** widgets are live, not pictures. Buttons work (start the timer, tick off a to-do), and
+  text boxes take normal typing — selection, Ctrl+A/C/X/V/Z, word-by-word with Ctrl.
+- **Where they sit:** just above the wallpaper and below your apps. They stay visible after
+  **Win+D** (Show desktop), never cover the window you're working in, and come back as soon as the
+  desktop is in front.
+- **Look:** glass cards with Windows' live blur behind, tinted in the island's surface colour, with a
+  sheen across the top and a soft rim. When the text colour is dark, the cards turn light so it stays
+  readable.
+- **Light on the PC:** a widget hidden behind windows isn't redrawn, and only a few redraw in any one
+  frame.
+- **Profiles** (Work, Gaming, Night) remember which widgets are on the desktop and where.
 
 ---
 
