@@ -209,6 +209,8 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Named("Hours to keep them", "Pinned snippets always stay", [("0", "Until the list is full"), ("1", "1 hour"), ("10", "10 hours"), ("24", "1 day"), ("72", "3 days")],
                 () => s.ClipboardKeepHours.ToString(), v => s.ClipboardKeepHours = int.Parse(v)),
             Toggle("Show as a list", "One line each instead of cards", () => s.ClipboardList, v => s.ClipboardList = v),
+            Toggle("Clipboard actions", "Copied maths, units, money, colours and links get a result on the pill; click to copy or open it",
+                () => s.ClipboardActions, v => s.ClipboardActions = v),
             Toggle("Copied text on the phone page", "Phone share shows what you last copied", () => s.PhoneShareCopiedText, v => s.PhoneShareCopiedText = v),
         ]);
         yield return ("Files and exports", [

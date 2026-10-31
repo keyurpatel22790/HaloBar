@@ -225,6 +225,8 @@ internal sealed class AppSettings
     public int ClipboardKeepHours { get; set; }
     /// <summary>The Clipboard tab as a compact list rather than cards.</summary>
     public bool ClipboardList { get; set; }
+    /// <summary>Copied maths, units, money, colours and links get a result on the pill.</summary>
+    public bool ClipboardActions { get; set; } = true;
 
     // Chat overlay: the chat in a window of its own on the screen.
     public bool ChatOverlay { get; set; }

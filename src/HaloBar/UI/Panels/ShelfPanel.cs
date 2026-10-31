@@ -159,6 +159,7 @@ internal sealed class ShelfPanel : Panel
                 var pinned = Hub.Clipboard.IsPinned(entry.Content.Text!);
                 ui.IconButton(card.Right - 13, card.Bottom - 13, 9, (cv, px, py, s, col) => Icons.Pin(cv, px, py, s, pinned ? Theme.Accent : col),
                     () => Hub.Clipboard.TogglePin(chosen.Content.Text!));
+                TextActions(ui, card.Right - 35, card.Bottom - 13, chosen.Content.Text!);
             }
         }
         c.Restore();
@@ -197,6 +198,7 @@ internal sealed class ShelfPanel : Panel
                 var pinned = Hub.Clipboard.IsPinned(entry.Content.Text!);
                 ui.IconButton(row.Right - 14, row.MidY, 9, (cv, px, py, s, col) => Icons.Pin(cv, px, py, s, pinned ? Theme.Accent : col),
                     () => Hub.Clipboard.TogglePin(chosen.Content.Text!));
+                TextActions(ui, row.Right - 36, row.MidY, chosen.Content.Text!);
             }
         }
         ui.Canvas.Restore();
@@ -239,5 +241,13 @@ internal sealed class ShelfPanel : Panel
             if (hovered) ui.IconButton(card.Right - 13, card.Bottom - 13, 9, Icons.Close, () => Hub.Clipboard.TogglePin(chosen));
         }
         ui.Canvas.Restore();
+    }
+
+    /// <summary>Search the web for the text, or translate it (into Settings' Translate-to language), in the browser.</summary>
+    private void TextActions(Ui ui, float rightX, float y, string text)
+    {
+        var q = Uri.EscapeDataString(text.Length > 500 ? text[..500] : text);
+        ui.IconButton(rightX, y, 9, Icons.Globe, () => Hub.Open($"https://www.google.com/search?q={q}"));
+        ui.IconButton(rightX - 22, y, 9, Icons.Swap, () => Hub.Open($"https://translate.google.com/?sl=auto&tl={Hub.Settings.TranslateTo}&text={q}&op=translate"));
     }
 }
