@@ -133,6 +133,20 @@ internal sealed class IslandView
     /// <summary>Where <see cref="Glass"/> lies on the canvas (the whole window), in DIPs.</summary>
     public SKRect GlassArea { get; set; }
     public int GlassBlur => Settings.GlassBlur;
+    /// <summary>Live weather inside the island: on in Settings, not over the slim line, not when saving power.</summary>
+    private bool WeatherShown => Settings.WeatherEffects && !SaveGlass && !SlimNow && !Hidden && !GameStrip;
+
+    /// <summary>The line being sung, for the closed pill (null without lyrics, or with the option off).</summary>
+    private string? PillLyric(MediaSnapshot media)
+    {
+        if (!Settings.LyricsInPill || !Settings.ShowLyrics) return null;
+        _hub.Lyrics.Request(media.Title, media.Artist, "", media.Duration);
+        return _hub.Lyrics.LineAt(media.LivePosition + TimeSpan.FromMilliseconds(300));
+    }
+
+    private string? _shownLyric;
+    private DateTime _lyricSince;
+
     /// <summary>Motion asks to save power (Battery saver, or Balanced on battery): the glass refreshes less often.</summary>
     public bool SaveGlass => Settings.Motion == "saver" || (Settings.Motion == "balanced" && _hub.Power.HasBattery && !_hub.Power.PluggedIn);
     public Theme Theme => _theme;
@@ -375,7 +389,7 @@ internal sealed class IslandView
             IslandMode.Notice => (NoticeWidth, 54f, 27f),
             IslandMode.Hud => (_hud!.Width(_ui), 40f, 20f),
             _ when activity != null => (activity.Width(_ui), 34f, 17f),
-            _ => media != null ? (Settings.TitleInPill ? 300f : 120f, 34f, 17f) : (168f, 34f, 17f),
+            _ => media != null ? (Settings.TitleInPill || Settings.LyricsInPill && Settings.ShowLyrics ? 300f : 120f, 34f, 17f) : (168f, 34f, 17f),
         };
         if (_mode == IslandMode.Collapsed && PrivacyDots > 0 && !SlimNow && !GameStrip) w += 6 + PrivacyDots * 9;
         _width.Target = w;
@@ -407,6 +421,7 @@ internal sealed class IslandView
         };
         if (_focused != null) interval = Math.Min(interval, 0.25); // caret blink
         if (_theme.Animated) interval = Math.Min(interval, 1 / 30.0);
+        if (WeatherShown && WeatherFx.Moving(_hub.Weather.Snapshot)) interval = Math.Min(interval, 0.05);
         return interval;
     }
 
@@ -564,6 +579,14 @@ internal sealed class IslandView
             if (edge.Color.Alpha > 0 || ring != null) canvas.DrawPath(shape, edge);
         }
         _theme.Sheen(canvas, shape, rect);
+        if (WeatherShown)
+        {
+            canvas.Save();
+            canvas.ClipPath(shape, SKClipOperation.Intersect, true);
+            var t = _theme.Text;
+            WeatherFx.Draw(canvas, rect, _hub.Weather.Snapshot, DateTime.Now, lightSurface: (t.Red * 0.3 + t.Green * 0.59 + t.Blue * 0.11) / 255 < 0.5);
+            canvas.Restore();
+        }
 
         canvas.Save();
         canvas.ClipPath(shape, SKClipOperation.Intersect, true);
@@ -752,7 +775,13 @@ internal sealed class IslandView
             return;
         }
         _music.DrawArtwork(_ui, media, new SKRect(r.Left + 7, r.MidY - 11, r.Left + 29, r.MidY + 11), 6);
-        if (Settings.TitleInPill) _ui.Text(media.Title, r.Left + 38, r.MidY + 4.5f, r.Width - 38 - 46, 12.5f, Theme.Weight.SemiBold);
+        if (PillLyric(media) is { Length: > 0 } lyric)
+        {
+            if (lyric != _shownLyric) (_shownLyric, _lyricSince) = (lyric, DateTime.Now);
+            var fade = (float)Math.Clamp((DateTime.Now - _lyricSince).TotalSeconds / 0.35, 0, 1);
+            _ui.Text(lyric, r.Left + 38, r.MidY + 4.5f, r.Width - 38 - 46, 12.5f, Theme.Weight.SemiBold, _theme.Text.WithAlpha((byte)(255 * fade)));
+        }
+        else if (Settings.TitleInPill) _ui.Text(media.Title, r.Left + 38, r.MidY + 4.5f, r.Width - 38 - 46, 12.5f, Theme.Weight.SemiBold);
         _visualizer.Draw(_ui.Canvas, r.Right - 34, r.MidY, 16, media.IsPlaying ? _theme.Accent : _theme.Faint, _hub.Settings.Visualizer == "pixels");
     }
 

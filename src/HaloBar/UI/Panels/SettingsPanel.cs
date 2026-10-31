@@ -73,6 +73,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
         ]);
         yield return ("Music", [
             Toggle("Lyrics", "The line being sung, from LRCLIB (sends title, artist and length)", () => s.ShowLyrics, v => s.ShowLyrics = v),
+            Toggle("Lyrics on the pill", "The closed island shows the line being sung instead of the title", () => s.LyricsInPill, v => s.LyricsInPill = v),
             Choice("Visualizer", "Beside the artwork on the pill", ["bars", "pixels"], () => s.Visualizer, v => s.Visualizer = v),
             Choice("Progress bar", null, ["wave", "simple", "pixels", "comet", "hearts"], () => s.ProgressBar, v => s.ProgressBar = v),
             Toggle("Song title in the closed island", "Between the cover and the bars; the pill grows a little for it", () => s.TitleInPill, v => s.TitleInPill = v),
@@ -90,6 +91,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
                 [("fluid", "Fluid"), ("balanced", "Balanced"), ("saver", "Battery saver")], () => s.Motion, v => s.Motion = v),
             Toggle("Hidden until hover", "Nothing at the top until the pointer rests there", () => s.HiddenUntilHover, v => s.HiddenUntilHover = v),
             Toggle("Slim over maximised windows", "A thin line so it never covers browser tabs", () => s.SlimWhenCovered, v => s.SlimWhenCovered = v),
+            Toggle("Weather on the island", "Rain, snow, fog, stars and sunset light from the live weather (off while saving battery)", () => s.WeatherEffects, v => s.WeatherEffects = v),
         ]);
         yield return ("Surface and colour", [
             new("Surface", "The island's material: dark, light, glass, aurora…", () => Hub.Theme.Surface.Name, () =>

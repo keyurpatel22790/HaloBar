@@ -401,6 +401,7 @@ Looking on the web
 Looking up…
 Low battery
 Lyrics
+Lyrics on the pill
 Lyrics unavailable right now
 MB/s
 Main
@@ -625,6 +626,7 @@ Quiet
 Quiet during focus
 RAM {0} GB
 Rain
+Rain, snow, fog, stars and sunset light from the live weather (off while saving battery)
 Rainbow
 Rates unavailable
 Read
@@ -787,6 +789,7 @@ Text in Settings; Same as Windows follows Windows' Text size
 Text shadow
 Text size
 The chat in a window of its own, above other windows; drag it, right-click for size
+The closed island shows the line being sung instead of the title
 The island is the only read-out
 The island's material: dark, light, glass, aurora…
 The line being sung, from LRCLIB (sends title, artist and length)
@@ -853,6 +856,7 @@ Watch the internet
 Waxing crescent
 Waxing gibbous
 Weather
+Weather on the island
 Weather unavailable
 Web
 Web drawer

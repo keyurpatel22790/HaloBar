@@ -891,3 +891,33 @@ public class ClipSenseTests
         if (Look("2.5k EUR") is { } euros) Assert.EndsWith("USD", euros.Copy);
     }
 }
+
+public class WeatherFxTests
+{
+    [Theory]
+    [InlineData(0, false)]  // clear night: stars
+    [InlineData(53, true)]  // drizzle
+    [InlineData(63, true)]  // rain
+    [InlineData(65, true)]  // heavy rain
+    [InlineData(73, true)]  // snow
+    [InlineData(95, true)]  // thunderstorm
+    [InlineData(45, true)]  // fog
+    public void Draws_each_kind_of_weather(int code, bool day)
+    {
+        var weather = new WeatherSnapshot("Here", 20, code, day, 25, 15, false, DateTime.Now);
+        Assert.True(WeatherFx.Moving(weather));
+        using var bitmap = new SKBitmap(300, 40);
+        bitmap.Erase(SKColors.Black);
+        using (var canvas = new SKCanvas(bitmap))
+            WeatherFx.Draw(canvas, new SKRect(0, 0, 300, 40), weather, DateTime.Today.AddSeconds(30.1), lightSurface: false);
+        var lit = 0;
+        for (var y = 0; y < 40; y++)
+            for (var x = 0; x < 300; x++)
+                if (bitmap.GetPixel(x, y) != SKColors.Black) lit++;
+        Assert.True(lit > 0, "nothing was drawn");
+    }
+
+    [Fact]
+    public void A_clear_day_stays_plain() =>
+        Assert.False(WeatherFx.Moving(new WeatherSnapshot("Here", 30, 0, true, 32, 24, false, DateTime.Now)));
+}
