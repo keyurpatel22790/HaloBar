@@ -136,7 +136,6 @@ internal sealed class IslandView
     /// <summary>Motion asks to save power (Battery saver, or Balanced on battery): the glass refreshes less often.</summary>
     public bool SaveGlass => Settings.Motion == "saver" || (Settings.Motion == "balanced" && _hub.Power.HasBattery && !_hub.Power.PluggedIn);
     public Theme Theme => _theme;
-    public bool HideFromCapture => Settings.HideFromCapture;
 
     /// <summary>Where the blurred backdrop of a see-through surface should show, in DIPs; null when it shouldn't.</summary>
     public (SKRect Rect, float Radius)? BackdropOutline =>

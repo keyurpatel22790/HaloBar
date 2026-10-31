@@ -8,8 +8,11 @@ internal sealed class AppSettings
 {
     private static readonly string FilePath = Path.Combine(AppPaths.Folder, "settings.json");
 
-    /// <summary>Keeps the island out of screenshots, recordings and screen sharing.</summary>
-    public bool HideFromCapture { get; set; }
+    /// <summary>
+    /// The island shows in screen sharing, screenshots and other apps' recordings. Off, it's kept out
+    /// of them, which the glass lens needs (it copies the screen behind it); on, glass uses Windows' blur.
+    /// </summary>
+    public bool ShowInSharing { get; set; }
     /// <summary>A code from <see cref="UI.Lang.Available"/>; "auto" follows Windows.</summary>
     public string Language { get; set; } = "auto";
     public bool HideInFullscreen { get; set; } = true;
@@ -254,8 +257,6 @@ internal sealed class AppSettings
     public string WebDrawerBounds { get; set; } = "";
     /// <summary>Each site's window, where it was left: site address → "x,y,width,height" in screen pixels.</summary>
     public Dictionary<string, string> WebWindowBounds { get; set; } = [];
-    /// <summary>When the glass island stays visible to screen sharing (using Windows' blur then): "calls" (mic or camera in use), "always" or "never".</summary>
-    public string ShowWhenSharing { get; set; } = "calls";
     /// <summary>Draw the island, widgets and windows on the graphics card (Direct3D 12) instead of the CPU; applies after a restart.</summary>
     public bool GpuDrawing { get; set; } = true;
     /// <summary>Light in the page around a playing video, in its colours.</summary>
@@ -290,7 +291,11 @@ internal sealed class AppSettings
         {
             if (File.Exists(FilePath))
             {
-                var settings = JsonSerializer.Deserialize(File.ReadAllText(FilePath), SettingsJson.Default.AppSettings) ?? new();
+                var text = File.ReadAllText(FilePath);
+                var settings = JsonSerializer.Deserialize(text, SettingsJson.Default.AppSettings) ?? new();
+                // Before ShowInSharing there were two options; "always" shown in sharing carries over.
+                if (!text.Contains("\"ShowInSharing\"", StringComparison.Ordinal))
+                    settings.ShowInSharing = text.Contains("\"ShowWhenSharing\": \"always\"", StringComparison.Ordinal);
                 // 0.1 stored a fixed blue as the default accent; let it follow the surface instead.
                 if (settings.Accent == "#7C9CFF") settings.Accent = "auto";
                 return settings;
