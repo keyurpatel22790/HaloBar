@@ -244,7 +244,7 @@ internal sealed class SiteWindow : NativeWindow
     public bool InFront => GetForegroundWindow() is var fg && (fg == Handle || IsChild(Handle, fg));
 
     public SiteWindow(WebDrawer drawer, WebSite site, int order)
-        : base("HaloBar.Web", WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WS_POPUP | WS_CLIPCHILDREN | WS_THICKFRAME)
+        : base("HaloBar.Web", WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WS_POPUP | WS_CLIPCHILDREN | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU)
     {
         _drawer = drawer;
         _order = order;
@@ -329,17 +329,59 @@ internal sealed class SiteWindow : NativeWindow
                 web.Navigate(target);
             else _drawer.OpenOutside(target);
         };
+        // A video's full-screen button fills the whole screen, as in a browser.
+        web.ContainsFullScreenElementChanged += (_, _) => SetFullScreen(web.ContainsFullScreenElement);
         view.AcceleratorKeyPressed += (_, e) =>
         {
-            // Esc hides the window, unless the page is in full screen (then it leaves that).
-            if (e.KeyEventKind == CoreWebView2KeyEventKind.KeyDown && e.VirtualKey == 0x1B && _visible && !web.ContainsFullScreenElement)
+            if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown) return;
+            // F11: the whole site full screen, without the bar.
+            if (e.VirtualKey == 0x7A)
             {
                 e.Handled = true;
-                Hide();
+                SetFullScreen(!_fullScreen);
+                return;
+            }
+            // Esc leaves full screen; otherwise it hides the window (a video in full screen leaves that itself).
+            if (e.VirtualKey == 0x1B && _visible && !web.ContainsFullScreenElement)
+            {
+                e.Handled = true;
+                if (_fullScreen) SetFullScreen(false);
+                else Hide();
             }
         };
         web.Navigate(Site.Url);
         if (_visible) view.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+    }
+
+    // ── Full screen ──
+
+    private bool _fullScreen, _wasMaximized;
+    private RECT _beforeFullScreen;
+
+    /// <summary>Fills the whole screen the window is on (over the taskbar, no bar), or goes back to where it was.</summary>
+    private void SetFullScreen(bool on)
+    {
+        if (on == _fullScreen) return;
+        if (on)
+        {
+            _wasMaximized = Maximized;
+            if (_wasMaximized) ShowWindow(Handle, SW_RESTORE);
+            GetWindowRect(Handle, out _beforeFullScreen);
+            var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfoW(MonitorFromWindow(Handle, 2 /* NEAREST */), ref info)) return;
+            _fullScreen = true;
+            var m = info.rcMonitor;
+            SetWindowPos(Handle, HWND_TOPMOST, m.Left, m.Top, m.Width, m.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        }
+        else
+        {
+            _fullScreen = false;
+            var b = _beforeFullScreen;
+            SetWindowPos(Handle, KeepOpen ? HWND_NOTOPMOST : HWND_TOPMOST, b.Left, b.Top, b.Width, b.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            if (_wasMaximized) ShowWindow(Handle, SW_MAXIMIZE);
+        }
+        if (_view != null) _view.Bounds = PageBounds();
+        InvalidateRect(Handle, IntPtr.Zero, false);
     }
 
     // ── Where the window sits ──
@@ -447,20 +489,24 @@ internal sealed class SiteWindow : NativeWindow
     // ── The bar ──
 
     private const int BarDip = 38;
-    private int Bar => (int)(BarDip * GetDpiForWindow(Handle) / 96f);
+    private int Bar => _fullScreen ? 0 : (int)(BarDip * GetDpiForWindow(Handle) / 96f);
+    private bool Maximized => IsZoomed(Handle);
 
     /// <summary>The page fills the window below the bar, leaving a thin edge to grab when it's a window.</summary>
     private System.Drawing.Rectangle PageBounds()
     {
         GetClientRect(Handle, out var r);
-        var edge = KeepOpen ? (int)(5 * GetDpiForWindow(Handle) / 96f) : 0;
+        var edge = KeepOpen && !Maximized && !_fullScreen ? (int)(5 * GetDpiForWindow(Handle) / 96f) : 0;
         return new System.Drawing.Rectangle(edge, Bar, Math.Max(1, r.Right - r.Left - 2 * edge), Math.Max(1, r.Bottom - r.Top - Bar - edge));
     }
 
-    private enum BarButton { None, Back, Forward, Reload, Home, Pin, Browser, ClosePage, Hide }
+    private enum BarButton { None, Back, Forward, Reload, Home, Pin, Browser, ClosePage, Minimize, Maximize, Hide }
 
-    /// <summary>Back, Forward, Reload and Home draw as icons (Segoe MDL2 Assets glyphs).</summary>
-    private static bool IsIcon(BarButton b) => b is BarButton.Back or BarButton.Forward or BarButton.Reload or BarButton.Home;
+    /// <summary>Back, Forward, Reload and Home sit on the left.</summary>
+    private static bool IsNav(BarButton b) => b is BarButton.Back or BarButton.Forward or BarButton.Reload or BarButton.Home;
+
+    /// <summary>These draw as icons (Segoe MDL2 Assets glyphs).</summary>
+    private static bool IsIcon(BarButton b) => IsNav(b) || b is BarButton.Minimize or BarButton.Maximize;
 
     /// <summary>Back and Forward are dim (and do nothing) when there's no page to go to.</summary>
     private bool Enabled(BarButton b) => b switch
@@ -484,6 +530,8 @@ internal sealed class SiteWindow : NativeWindow
             return box;
         }
         var hide = Box((int)(34 * s));
+        // Staying open it's a real window, so it minimises and maximises like one.
+        var window = KeepOpen ? new[] { (BarButton.Maximize, Box((int)(34 * s)), Maximized ? "\uE923" : "\uE922"), (BarButton.Minimize, Box((int)(34 * s)), "\uE921") } : [];
         var close = Box((int)(92 * s));
         var browser = Box((int)(124 * s));
         var pin = Box((int)(112 * s));
@@ -498,7 +546,8 @@ internal sealed class SiteWindow : NativeWindow
         var forward = Nav();
         var reload = Nav();
         var home = Nav();
-        return [(BarButton.Hide, hide, "✕"), (BarButton.ClosePage, close, "Close page"), (BarButton.Browser, browser, "Open in browser"),
+        if (_fullScreen) return [];
+        return [.. window, (BarButton.Hide, hide, "✕"), (BarButton.ClosePage, close, "Close page"), (BarButton.Browser, browser, "Open in browser"),
                 (BarButton.Pin, pin, KeepOpen ? "Stays open ✓" : "Hides on click"),
                 (BarButton.Back, back, ""), (BarButton.Forward, forward, ""), (BarButton.Reload, reload, ""), (BarButton.Home, home, "")];
     }
@@ -509,7 +558,8 @@ internal sealed class SiteWindow : NativeWindow
         var p = new POINT { X = (short)((long)lParam & 0xFFFF), Y = (short)(((long)lParam >> 16) & 0xFFFF) };
         ScreenToClient(Handle, ref p);
         GetClientRect(Handle, out var r);
-        var edge = (int)(6 * GetDpiForWindow(Handle) / 96f);
+        if (_fullScreen) return 1; // HTCLIENT
+        var edge = Maximized ? 0 : (int)(6 * GetDpiForWindow(Handle) / 96f);
         bool left = p.X < edge, right = p.X >= r.Right - edge, top = p.Y < edge / 2, bottom = p.Y >= r.Bottom - edge;
         if (top && left) return 13;
         if (top && right) return 14;
@@ -556,6 +606,12 @@ internal sealed class SiteWindow : NativeWindow
             case BarButton.Home:
                 Page?.Navigate(Site.Url); // the site's own start page, as pinned
                 break;
+            case BarButton.Minimize:
+                ShowWindow(Handle, SW_MINIMIZE);
+                break;
+            case BarButton.Maximize:
+                ShowWindow(Handle, Maximized ? SW_RESTORE : SW_MAXIMIZE);
+                break;
             case BarButton.ClosePage:
                 _drawer.Close(Site);
                 break;
@@ -582,7 +638,7 @@ internal sealed class SiteWindow : NativeWindow
             var old = SelectObject(dc, font);
             SetBkMode(dc, 1 /* TRANSPARENT */);
             SetTextColor(dc, 0x00F2EEEE);
-            var navEnd = Buttons().Where(b => IsIcon(b.Button)).Max(b => b.Rect.Right);
+            var navEnd = Buttons().Where(b => IsNav(b.Button)).Select(b => b.Rect.Right).DefaultIfEmpty(0).Max();
             var title = new RECT { Left = navEnd + (int)(12 * s), Top = 0, Right = r.Right / 2, Bottom = Bar };
             DrawTextW(dc, Site.Name, -1, ref title, 0x24 | 0x8000 /* VCENTER | SINGLELINE | END_ELLIPSIS */);
             SelectObject(dc, old);
@@ -620,6 +676,7 @@ internal sealed class SiteWindow : NativeWindow
         {
             case WM_SIZE:
                 if (_view != null) _view.Bounds = PageBounds();
+                InvalidateRect(Handle, IntPtr.Zero, false); // the maximise icon changes
                 return IntPtr.Zero;
             case WM_ACTIVATE when (wParam.ToInt64() & 0xFFFF) == 0 && _visible && !KeepOpen:
                 // Dropped down and clicked somewhere else: hide. The island never takes activation,
@@ -638,10 +695,23 @@ internal sealed class SiteWindow : NativeWindow
                 PaintBar();
                 return IntPtr.Zero;
             case WM_NCCALCSIZE when wParam != IntPtr.Zero:
-                return IntPtr.Zero; // the whole window is client area: no frame drawn
+                // The whole window is client area: no frame drawn. Maximised, Windows makes the
+                // window bigger than the screen by its (hidden) frame; take that back off.
+                if (Maximized && !_fullScreen)
+                {
+                    var dpi = GetDpiForWindow(Handle);
+                    var frame = GetSystemMetricsForDpi(32 /* SM_CXFRAME */, dpi) + GetSystemMetricsForDpi(92 /* SM_CXPADDEDBORDER */, dpi);
+                    var rect = Marshal.PtrToStructure<RECT>(lParam);
+                    rect.Left += frame;
+                    rect.Top += frame;
+                    rect.Right -= frame;
+                    rect.Bottom -= frame;
+                    Marshal.StructureToPtr(rect, lParam, false);
+                }
+                return IntPtr.Zero;
             case WM_NCHITTEST when KeepOpen:
                 return new IntPtr(HitTest(lParam));
-            case WM_EXITSIZEMOVE when KeepOpen:
+            case WM_EXITSIZEMOVE when KeepOpen && !Maximized && !_fullScreen:
                 SaveBounds();
                 return IntPtr.Zero;
             case WM_ERASEBKGND:
@@ -677,7 +747,10 @@ internal sealed class SiteWindow : NativeWindow
         base.Dispose();
     }
 
-    private const int SW_HIDE = 0, SW_SHOW = 5;
+    private const int SW_HIDE = 0, SW_SHOW = 5, SW_MAXIMIZE = 3, SW_MINIMIZE = 6, SW_RESTORE = 9;
+    private const uint WS_MAXIMIZEBOX = 0x00010000, WS_MINIMIZEBOX = 0x00020000, WS_SYSMENU = 0x00080000, SWP_FRAMECHANGED = 0x20;
+    [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern int GetSystemMetricsForDpi(int index, uint dpi);
     private const uint WM_SIZE = 0x0005, WM_ACTIVATE = 0x0006, WM_PAINT = 0x000F, WM_ERASEBKGND = 0x0014, WM_MOUSELEAVE = 0x02A3,
         WM_NCCALCSIZE = 0x0083, WM_NCHITTEST = 0x0084, WM_EXITSIZEMOVE = 0x0232;
     private const uint WS_THICKFRAME = 0x00040000, WS_CLIPCHILDREN = 0x02000000;
