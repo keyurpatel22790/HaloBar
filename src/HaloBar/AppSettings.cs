@@ -254,6 +254,12 @@ internal sealed class AppSettings
     public string WebDrawerBounds { get; set; } = "";
     /// <summary>Each site's window, where it was left: site address → "x,y,width,height" in screen pixels.</summary>
     public Dictionary<string, string> WebWindowBounds { get; set; } = [];
+    /// <summary>The LG TV whose Developer Mode HaloBar keeps renewed (its address), its session token, and the last renewal.</summary>
+    public string TvAddress { get; set; } = "";
+    public string TvSessionToken { get; set; } = "";
+    public DateTime TvRenewedAt { get; set; }
+    /// <summary>Light in the page around a playing video, in its colours.</summary>
+    public bool WebGlow { get; set; } = true;
     /// <summary>Block ads and trackers in the web drawer (YouTube and YouTube Music included).</summary>
     public bool WebAdBlock { get; set; } = true;
     /// <summary>An ad that still plays in the drawer is muted, sped up and skipped.</summary>

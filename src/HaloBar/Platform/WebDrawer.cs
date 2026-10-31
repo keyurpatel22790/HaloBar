@@ -307,6 +307,7 @@ internal sealed class SiteWindow : NativeWindow
         view.IsVisible = _visible;
         var web = view.CoreWebView2;
         _drawer.Opened(Site, web, environment);
+        if (_drawer.Settings.WebGlow) _ = web.AddScriptToExecuteOnDocumentCreatedAsync(GlowScript.Source);
         web.Settings.IsStatusBarEnabled = false;
         web.Settings.AreDefaultContextMenusEnabled = true;
         // Back and Forward light up as the page's history changes.

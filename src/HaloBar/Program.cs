@@ -321,6 +321,7 @@ internal sealed class IslandApp : IDisposable
             Profiles = new ProfileService(settings, _controls, settings.Save, ApplyLayout),
             Network = new NetworkHealth(() => settings.NetworkWatch),
             Layouts = new LayoutService(settings, settings.Save),
+            Tv = new TvDevModeService(settings),
             Agents = _agents,
             Launcher = _launcher,
             Obs = _obs,
@@ -756,6 +757,8 @@ internal sealed class IslandApp : IDisposable
             ? new Hud(HudIcon.Info, "Back online", Detail: h.Network.PingMs is { } ms ? $"{ms} ms" : null)
             : new Hud(HudIcon.Info, "Internet is down", Detail: "HaloBar tells you when it's back", Tint: Red), TimeSpan.FromSeconds(3)));
         h.Network.Start();
+        h.Tv.Failed += why => Post(() => ShowNotice(new Notice("LG TV", "Developer Mode not renewed", why, null, DateTime.Now)));
+        h.Tv.Start();
         h.Power.Changed += () => Post(CheckChargeLimit);
         h.Web.Focusing = () => h.Timer.Phase == TimerPhase.Focus && !h.Timer.Paused;
         h.Bluetooth.Changed += Invalidate;
@@ -1632,6 +1635,7 @@ internal sealed class IslandApp : IDisposable
         _hub.Stats.Dispose();
         _hub.Calendar.Dispose();
         _hub.Network.Dispose();
+        _hub.Tv.Dispose();
         _hub.Lyrics.Dispose();
         _hub.Downloads.Dispose();
         _hub.Ticker.Dispose();
