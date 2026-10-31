@@ -64,7 +64,7 @@ internal static class TileCatalogue
     public static List<Tile> Create(Hub hub) =>
     [
         new DateTile(hub), new WeatherTile(hub), new AirSunTile(hub), new StatsTile(hub), new TimerTile(hub),
-        new ClockTile(hub), new TodoTile(hub), new BatteryTile(hub), new NextUpTile(hub), new MonthTile(hub),
+        new ClockTile(hub), new TodoTile(hub), new BatteryTile(hub), new BatteryHealthTile(hub), new NextUpTile(hub), new MonthTile(hub),
         new ScreenTimeTile(hub), new DiskTile(hub), new NetworkTile(hub), new SystemTile(hub),
         new NoteTile(hub), new CountdownTile(hub), new CounterTile(hub), new StopwatchTile(hub),
         new CalculatorTile(hub), new ConverterTile(hub), new TranslateTile(hub), new DictionaryTile(hub),

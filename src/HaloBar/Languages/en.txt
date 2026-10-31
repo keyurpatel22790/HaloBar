@@ -106,6 +106,8 @@ Brightness, volume and switches for Wi-Fi, Bluetooth, Night light
 Brightness: this display isn't controllable
 CAP REQ :twitch.tv/tags
 CPU and GPU temperature
+CPU is running hot
+CPU over {0}°C or GPU over {1}°C for a minute, memory over {2}, the Windows drive nearly full
 CPU {0}
 CPU {0} {1}
 Cairo
@@ -250,6 +252,7 @@ Done
 Down
 Downloaded
 Draw on the graphics card
+Drive {0} is nearly full
 Drizzle
 Drop files on the island
 Drop one on the shelf to see its resolution, length and size
@@ -313,6 +316,7 @@ Glass, Frost and Candy: lower is clearer, higher is frostier
 Glob
 Glow around videos
 Good
+Graphics card is running hot
 Graphite
 Green
 Green and orange dots on the pill
@@ -326,6 +330,7 @@ HaloBar {0} starting
 HaloBar's folder
 Hazardous
 Health {0}
+Health {0} · {1} cycles
 Here
 Hidden until hover
 Hide the Windows volume pop-up
@@ -405,6 +410,7 @@ Mb/s
 Meanings of English words
 Meeting countdown
 Megabytes as downloads show it, or megabits as speed tests do
+Memory is nearly full
 Memory: {0}
 Mic
 Mic · {0}
@@ -558,6 +564,8 @@ Orange
 Outlook
 Output
 PASS SCHMOOPIIE
+PC health
+PC health alerts
 PM2.5
 Pair
 Pairing with {0} was cancelled
@@ -618,6 +626,7 @@ Rainbow
 Rates unavailable
 Read
 Read a Twitch or YouTube live chat
+Reading Windows' battery report…
 Reading drives…
 Reading files
 Reading {0}
@@ -787,6 +796,7 @@ They wait here until you need them. Screenshots ({0}) land here too.
 They wait here until you need them. Screenshots land here too.
 Thinking…
 This PC
+This PC runs from the wall
 This month
 This network is Public: in Windows settings set it to Private so phones can connect.
 This network is set to Public, so Windows may turn phones away
@@ -890,6 +900,9 @@ Your voice, mixed with the PC's sound
 \uE923
 ar-AE
 at 9
+b:CycleCount
+b:DesignCapacity
+b:FullChargeCapacity
 bad request
 custom:{0}:{1}
 day ago
@@ -931,6 +944,7 @@ zh-Hant
 zh-TW
 {0} / {1} min
 {0} GB
+{0} GB free of {1} GB
 {0} High
 {0} KB
 {0} Low
@@ -960,6 +974,8 @@ zh-TW
 {0} ms
 {0} needs a PIN typed in: pair it from Windows Settings
 {0} needs you
+{0} of {1} GB in use{2}
+{0} of {1} Wh
 {0} placed · opening {1}
 {0} profile
 {0} sees warmer colours than the file
@@ -975,5 +991,7 @@ zh-TW
 {0}% · plug in soon
 {0}/{1} GB
 {0}h {1}m left
+{0}°C. A game or video app may be pushing it hard
+{0}°C. Check what's busy, and that the vents aren't blocked
 } area {_glass?.Area} picture {View.Glass?.Width}x{View.Glass?.Height} on {Monitor.Key}
 × removes a site · clicking an open one (green dot) closes its page

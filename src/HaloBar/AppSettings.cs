@@ -267,6 +267,8 @@ internal sealed class AppSettings
     public bool WebAdFastForward { get; set; } = true;
     /// <summary>Unpacked browser extensions (folders with a manifest.json) for the web drawer.</summary>
     public List<string> WebExtensions { get; set; } = [];
+    /// <summary>Warns when the CPU or GPU runs hot, memory is nearly full, or the Windows drive is nearly full.</summary>
+    public bool PcHealthAlerts { get; set; } = true;
     /// <summary>Checks the internet every 20 seconds and says when it drops or comes back.</summary>
     public bool NetworkWatch { get; set; } = true;
     /// <summary>A reminder to unplug when charging reaches this percent; 0 for none.</summary>
