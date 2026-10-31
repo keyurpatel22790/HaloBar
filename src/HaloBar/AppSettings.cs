@@ -254,6 +254,10 @@ internal sealed class AppSettings
     public string WebDrawerBounds { get; set; } = "";
     /// <summary>Each site's window, where it was left: site address → "x,y,width,height" in screen pixels.</summary>
     public Dictionary<string, string> WebWindowBounds { get; set; } = [];
+    /// <summary>When the glass island stays visible to screen sharing (using Windows' blur then): "calls" (mic or camera in use), "always" or "never".</summary>
+    public string ShowWhenSharing { get; set; } = "calls";
+    /// <summary>Draw the island, widgets and windows on the graphics card (Direct3D 12) instead of the CPU; applies after a restart.</summary>
+    public bool GpuDrawing { get; set; } = true;
     /// <summary>Light in the page around a playing video, in its colours.</summary>
     public bool WebGlow { get; set; } = true;
     /// <summary>Block ads and trackers in the web drawer (YouTube and YouTube Music included).</summary>

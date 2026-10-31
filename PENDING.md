@@ -104,7 +104,7 @@ Every option NotchPixel 0.5.88 saves that HaloBar lacked, compared from its sett
 - **Privacy dots:** a switch per app seen using the camera or microphone. **Web extensions:** unpacked extension folders loaded into the web drawer.
 - Not built: an FPS reading on the strip (needs admin ETW, as before).
 - Also fixed: widgets stayed lifted over apps when a foreground change was missed (now re-checked every half second against the real window state); widgets hidden behind windows aren't redrawn; snapshots no longer redraw every widget.
-- Still to try by hand: the chat overlay with a live chat, an export folder with a real render, extensions in the web drawer, Battery saver motion on battery.
+- Still to try by hand: extensions in the web drawer (the others were confirmed on 2026-10-31).
 
 ## Performance and widget fixes (2026-10-30 night, not committed)
 
@@ -162,8 +162,16 @@ HaloBar now has its own (UI/SettingsWindow.cs): a normal resizable window (dark 
 
 - Win+D with widgets; changing a shortcut in Settings › Keys; signing in to a site in the web drawer; the microphone level in a recording.
 - Acrylic, Frost, Candy and Glass lens over a real wallpaper.
-- Brightness, Bluetooth, Night light and Wi-Fi switching.
+- Brightness and Night light switching.
 - OBS, the camera mirror, and the screenshot hotkey.
+
+## Confirmed by hand (2026-10-31)
+
+- Video glow in web pages; web windows maximise, minimise, Snap and full screen on a video.
+- Wi-Fi network switching; Bluetooth connect, disconnect and pairing from the island.
+- Profiles, the Join button on meetings, copy text from the screen (Ctrl+Alt+X), QR codes (Ctrl+Alt+Q), the speed test.
+- Window layouts restore after moving windows; YT Music plays without ads between songs.
+- Chat overlay with a live chat, an export folder with a real render, motion on battery saver.
 - Phone share: it opens a port on your Wi-Fi and Windows asks about the firewall, and your network is currently Public.
 - More than one monitor.
 

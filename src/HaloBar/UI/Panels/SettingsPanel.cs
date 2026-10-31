@@ -161,6 +161,8 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
         yield return ("Island", [
             Toggle("Hide when something is full screen", null, () => s.HideInFullscreen, v => s.HideInFullscreen = v),
             Toggle("Hide from screenshots and sharing", null, () => s.HideFromCapture, v => { s.HideFromCapture = v; applyLayout(); }),
+            Named("Show in screen sharing", "Glass needs the island hidden from captures; when shown, it uses Windows' blur instead",
+                [("calls", "During calls"), ("always", "Always"), ("never", "Never (glass only)")], () => s.ShowWhenSharing, v => s.ShowWhenSharing = v),
             Toggle("Every monitor", "One island per screen", () => s.AllMonitors, v => { s.AllMonitors = v; applyLayout(); }),
             Slider("Open delay", "How long the pointer rests before it opens", 0, 800, 1, () => s.HoverDelayMs, v => s.HoverDelayMs = v, " ms", applyLayout),
             Slider("Notice time", "How long a notification stays on the pill", 2, 20, 1, () => s.NotificationSeconds, v => s.NotificationSeconds = v, " s", applyLayout),
@@ -191,6 +193,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
                 if (v) Hub.Banners.QuietAll(Hub.Notices.Items.Select(n => n.AppId));
                 else Hub.Banners.RestoreAll();
             }),
+            Toggle("Draw on the graphics card", "Smoother, and lighter on the CPU; takes effect after a restart", () => s.GpuDrawing, v => s.GpuDrawing = v),
             new("Start with Windows", null, null, () => StartupRegistration.Set(!StartupRegistration.IsEnabled), () => StartupRegistration.IsEnabled),
             new("Language", s.Language == "auto" ? Lang.Name(Lang.Current) : null, () => Lang.Name(s.Language), () =>
             {

@@ -248,6 +248,7 @@ Docker · {0} running
 Done
 Down
 Downloaded
+Draw on the graphics card
 Drizzle
 Drop files on the island
 Drop one on the shelf to see its resolution, length and size
@@ -709,6 +710,7 @@ Slim over maximised windows
 Slot {0} is empty
 Small bars beside CPU and GPU
 Smaller
+Smoother, and lighter on the CPU; takes effect after a restart
 Snow
 Snow showers
 Social sites
