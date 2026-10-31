@@ -57,9 +57,6 @@ internal static class Program
 /// <summary>One monitor's island: its window, its swap chain and its view.</summary>
 internal sealed class IslandScreen : IDisposable
 {
-    private SKCanvas? _canvas;
-    private SKBitmap? _canvasBitmap;
-
     public OverlayWindow Window { get; }
     public CompositionSurface Surface { get; private set; }
     public IslandView View { get; }
@@ -93,7 +90,7 @@ internal sealed class IslandScreen : IDisposable
         _glass?.Dispose();
         _glass = null;
         _glassRetryAt = default;
-        DropCanvas();
+        DropUploadedGlass();
         Surface.Dispose();
         Surface = new CompositionSurface(gfx, Window.Handle, Window.Width, Window.Height);
     }
@@ -107,30 +104,25 @@ internal sealed class IslandScreen : IDisposable
     /// <summary>Draws and presents one frame. Returns false when the GPU device was lost.</summary>
     public bool Render()
     {
-        if (!ReferenceEquals(_canvasBitmap, Surface.Bitmap))
-        {
-            DropCanvas();
-            _canvasBitmap = Surface.Bitmap;
-            _canvas = new SKCanvas(_canvasBitmap);
-        }
-        // The canvas is reused across frames; start each from a clean save stack.
-        _canvas!.RestoreToCount(1);
-        _canvas.ResetMatrix();
-        _canvas.Scale(Window.Scale);
+        // On the GPU each frame has a fresh canvas; on the CPU it's reused, so start from a clean save stack.
+        var canvas = Surface.BeginFrame();
+        canvas.RestoreToCount(1);
+        canvas.ResetMatrix();
+        canvas.Scale(Window.Scale);
         var timer = Stopwatch.StartNew();
         FeedGlass();
         try
         {
-            View.Draw(_canvas);
+            View.Draw(canvas);
             UpdateBackdrop();
         }
         catch (Exception ex)
         {
             // Keep the app alive; a broken frame is better than no island.
             Log.Write($"Draw failed: {ex}");
-            _canvas.RestoreToCount(1);
+            canvas.RestoreToCount(1);
         }
-        _canvas.Flush();
+        canvas.Flush();
         DrawMs += timer.Elapsed.TotalMilliseconds;
         timer.Restart();
         var ok = Surface.Present();
@@ -150,7 +142,8 @@ internal sealed class IslandScreen : IDisposable
     {
         // While HaloBar records the screen the island must be in the video, and glass needs it
         // kept out of captures; it uses Windows' own blur until the recording stops.
-        var want = View.WantsGlass && DateTime.Now >= _glassRetryAt && !Recording;
+        // Likewise while the screen may be shared (see Sharing), so the island shows in the share.
+        var want = View.WantsGlass && DateTime.Now >= _glassRetryAt && !Recording && !Sharing;
         var exclude = want || View.HideFromCapture;
         if (exclude != _excluded)
         {
@@ -185,7 +178,8 @@ internal sealed class IslandScreen : IDisposable
             : new SKRectI(w.Left + (int)((b.Left - 24) * s), w.Top, w.Left + (int)Math.Ceiling((b.Right + 24) * s), w.Top + (int)Math.Ceiling((b.Bottom + 20) * s));
         var picture = _glass.Behind(screen, View.GlassBlur, (open ? 16 : 50) * (View.SaveGlass ? 3 : 1));
         _shownVersion = _glass.Version;
-        View.Glass = picture;
+        RawGlass = picture;
+        View.Glass = OnGraphicsCard(picture);
         // Where that picture lies on the canvas: it may be the last area while the new one is copied.
         var area = _glass.Area;
         View.GlassArea = new SKRect((area.Left - w.Left) / s, (area.Top - w.Top) / s, (area.Right - w.Left) / s, (area.Bottom - w.Top) / s);
@@ -198,8 +192,35 @@ internal sealed class IslandScreen : IDisposable
     }
 
     private int _shownVersion = -1;
+
+    /// <summary>The glass picture as the reader made it (in memory), for the glass snapshot.</summary>
+    public SKImage? RawGlass { get; private set; }
+    private SKImage? _uploadedFrom, _uploaded;
+
+    /// <summary>
+    /// Drawing on the GPU, the glass picture goes up to the graphics card once, when a new one
+    /// arrives; drawn as a memory image, Skia would upload it again on every frame.
+    /// </summary>
+    private SKImage? OnGraphicsCard(SKImage? picture)
+    {
+        if (picture == null || _gfx.Gpu is not { } gpu) return picture;
+        if (ReferenceEquals(picture, _uploadedFrom) && _uploaded != null) return _uploaded;
+        _uploaded?.Dispose();
+        _uploaded = picture.ToTextureImage(gpu.Context);
+        _uploadedFrom = picture;
+        return _uploaded ?? picture;
+    }
+
+    private void DropUploadedGlass()
+    {
+        _uploaded?.Dispose();
+        _uploaded = null;
+        _uploadedFrom = null;
+    }
     /// <summary>Set by the app while its screen recorder runs.</summary>
     public static bool Recording { get; set; }
+    /// <summary>Set by the app while the screen may be shared (per Settings › Show in screen sharing).</summary>
+    public static bool Sharing { get; set; }
 
     /// <summary>What the glass is reading, for the log.</summary>
     public string GlassInfo => $"{_glass?.GetType().Name ?? "none"} area {_glass?.Area} picture {View.Glass?.Width}x{View.Glass?.Height} on {Monitor.Key}";
@@ -230,18 +251,12 @@ internal sealed class IslandScreen : IDisposable
         else _backdrop?.Update(false, 0, 0, 0, 0, 0);
     }
 
-    private void DropCanvas()
-    {
-        _canvas?.Dispose();
-        _canvas = null;
-        _canvasBitmap = null;
-    }
 
     public void Dispose()
     {
         _glass?.Dispose();
         _backdrop?.Dispose();
-        DropCanvas();
+        DropUploadedGlass();
         Surface.Dispose();
         Window.Dispose();
     }
@@ -286,6 +301,7 @@ internal sealed class IslandApp : IDisposable
         SKGraphics.SetResourceCacheTotalByteLimit(4 * 1024 * 1024);
         SKGraphics.SetFontCacheLimit(2 * 1024 * 1024);
 
+        GraphicsDevice.UseGpu = settings.GpuDrawing;
         _gfx = new GraphicsDevice();
         Log.Write($"GPU {_gfx.AdapterName}");
         _theme = new Theme(settings.Surface, settings.Accent, settings.AlbumCard);
@@ -805,7 +821,7 @@ internal sealed class IslandApp : IDisposable
             // "glass:1" saves what the second screen's glass lens currently sees behind its island.
             if (panel?.StartsWith("glass:", StringComparison.OrdinalIgnoreCase) == true && int.TryParse(panel[6..], out var index))
             {
-                if (_screens.ElementAtOrDefault(index)?.View.Glass is { } glass)
+                if (_screens.ElementAtOrDefault(index)?.RawGlass is { } glass)
                 {
                     using var data = glass.Encode(SKEncodedImageFormat.Png, 100);
                     File.WriteAllBytes(file, data.ToArray());
@@ -818,9 +834,13 @@ internal sealed class IslandApp : IDisposable
                 if (_settingsWindow is { } window)
                 {
                     window.Dirty = true;
+                    window.CaptureNextFrame();
                     window.Render(window.LastFrame + 0.016, 0.016);
-                    using var data = window.Picture.Encode(SKEncodedImageFormat.Png, 100);
-                    File.WriteAllBytes(file, data.ToArray());
+                    if (window.Picture is { } picture)
+                    {
+                        using var data = picture.Encode(SKEncodedImageFormat.Png, 100);
+                        File.WriteAllBytes(file, data.ToArray());
+                    }
                 }
                 return;
             }
@@ -829,9 +849,13 @@ internal sealed class IslandApp : IDisposable
             {
                 if (_widgets.FirstOrDefault(w => w.TileId.Equals(panel[7..], StringComparison.OrdinalIgnoreCase)) is { } widget)
                 {
+                    widget.CaptureNextFrame();
                     widget.Render(0);
-                    using var data = widget.Picture.Encode(SKEncodedImageFormat.Png, 100);
-                    File.WriteAllBytes(file, data.ToArray());
+                    if (widget.Picture is { } picture)
+                    {
+                        using var data = picture.Encode(SKEncodedImageFormat.Png, 100);
+                        File.WriteAllBytes(file, data.ToArray());
+                    }
                 }
                 return;
             }
@@ -1432,6 +1456,13 @@ internal sealed class IslandApp : IDisposable
             last = now;
             _theme.Tick(dt, _hub.Media.Snapshot?.Palette);
             IslandScreen.Recording = _hub.Recorder.Recording;
+            // A call (an app using the mic or camera) usually means the screen may be shared.
+            IslandScreen.Sharing = _settings.ShowWhenSharing switch
+            {
+                "always" => true,
+                "never" => false,
+                _ => _hub.Privacy.MicrophoneInUse || _hub.Privacy.CameraInUse,
+            };
             CheckLockKeys();
             if (now >= nextSecond)
             {
@@ -1556,9 +1587,11 @@ internal sealed class IslandApp : IDisposable
                 }
                 else
                 {
+                    _screens[0].Surface.CaptureNext = true;
                     _screens[0].Render();
-                    using (var data = _screens[0].Surface.Bitmap.Encode(SKEncodedImageFormat.Png, 100))
-                        File.WriteAllBytes(snap.File, data.ToArray());
+                    if (_screens[0].Surface.Captured is { } picture)
+                        using (var data = picture.Encode(SKEncodedImageFormat.Png, 100))
+                            File.WriteAllBytes(snap.File, data.ToArray());
                     _snapshot = null;
                 }
             }
@@ -1606,6 +1639,8 @@ internal sealed class IslandApp : IDisposable
         _trimAt = now + TrimEvery.TotalSeconds;
 
         var before = MemoryText();
+        // Textures Skia keeps for reuse on the graphics card (glyphs and images come back on demand).
+        _gfx.Gpu?.Context.PurgeUnlockedResources(false);
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         EmptyWorkingSet(GetCurrentProcess());
         Log.Write($"Memory trimmed: {before} -> {MemoryText()}");

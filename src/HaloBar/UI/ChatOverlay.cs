@@ -19,8 +19,6 @@ internal sealed class ChatOverlay : IDisposable
     private readonly Ui _ui;
     private GraphicsDevice _gfx;
     private CompositionSurface _surface;
-    private SKCanvas? _canvas;
-    private SKBitmap? _canvasBitmap;
     private int _size = 1;
     private int _seen = -1;
 
@@ -92,7 +90,6 @@ internal sealed class ChatOverlay : IDisposable
     public void ReplaceSurface(GraphicsDevice gfx)
     {
         _gfx = gfx;
-        DropCanvas();
         _surface.Dispose();
         _surface = new CompositionSurface(_gfx, Window.Handle, Pixels(Size.W), Pixels(Size.H));
         _seen = -1;
@@ -101,14 +98,8 @@ internal sealed class ChatOverlay : IDisposable
     /// <summary>Draws and presents one frame. Returns false when the GPU device was lost.</summary>
     public bool Render(double now)
     {
-        if (!ReferenceEquals(_canvasBitmap, _surface.Bitmap))
-        {
-            DropCanvas();
-            _canvasBitmap = _surface.Bitmap;
-            _canvas = new SKCanvas(_canvasBitmap);
-        }
         var s = _hub.Settings;
-        var canvas = _canvas!;
+        var canvas = _surface.BeginFrame();
         canvas.ResetMatrix();
         canvas.Clear(SKColors.Transparent);
         canvas.Scale(Window.Scale);
@@ -177,16 +168,9 @@ internal sealed class ChatOverlay : IDisposable
         return lines;
     }
 
-    private void DropCanvas()
-    {
-        _canvas?.Dispose();
-        _canvas = null;
-        _canvasBitmap = null;
-    }
 
     public void Dispose()
     {
-        DropCanvas();
         _surface.Dispose();
         Window.Dispose();
     }

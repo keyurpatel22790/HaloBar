@@ -23,8 +23,6 @@ internal sealed class DesktopWidget : IDisposable
     private CompositionSurface _surface;
     /// <summary>Windows' own blur of what's behind the card (Windows does the work, so many widgets cost nothing).</summary>
     private AcrylicBackdrop? _backdrop;
-    private SKCanvas? _canvas;
-    private SKBitmap? _canvasBitmap;
     private (int X, int Y)? _lastCursor;
     private bool _failed;
 
@@ -84,7 +82,9 @@ internal sealed class DesktopWidget : IDisposable
 
     public string TileId => _tile.Id;
     /// <summary>The last frame drawn.</summary>
-    public SKBitmap Picture => _surface.Bitmap;
+    /// <summary>The last frame drawn after <see cref="CaptureNextFrame"/> (for snapshots).</summary>
+    public SKBitmap? Picture => _surface.Captured;
+    public void CaptureNextFrame() => _surface.CaptureNext = true;
     private float Width => Place.Wide ? WideWidth : NarrowWidth;
     private int Pixels(float dip) => (int)Math.Ceiling(dip * Window.Scale);
 
@@ -119,7 +119,6 @@ internal sealed class DesktopWidget : IDisposable
     public void ReplaceSurface(GraphicsDevice gfx)
     {
         _gfx = gfx;
-        DropCanvas();
         _surface.Dispose();
         _surface = new CompositionSurface(_gfx, Window.Handle, Pixels(Width), Pixels(TileHeight));
         Dirty = true;
@@ -128,14 +127,8 @@ internal sealed class DesktopWidget : IDisposable
     /// <summary>Draws and presents one frame. Returns false when the GPU device was lost.</summary>
     public bool Render(double now)
     {
-        if (!ReferenceEquals(_canvasBitmap, _surface.Bitmap))
-        {
-            DropCanvas();
-            _canvasBitmap = _surface.Bitmap;
-            _canvas = new SKCanvas(_canvasBitmap);
-        }
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        var canvas = _canvas!;
+        var canvas = _surface.BeginFrame();
         canvas.RestoreToCount(1);
         canvas.ResetMatrix();
         canvas.Clear(SKColors.Transparent);
@@ -248,17 +241,10 @@ internal sealed class DesktopWidget : IDisposable
         Dirty = true;
     }
 
-    private void DropCanvas()
-    {
-        _canvas?.Dispose();
-        _canvas = null;
-        _canvasBitmap = null;
-    }
 
     public void Dispose()
     {
         _backdrop?.Dispose();
-        DropCanvas();
         _surface.Dispose();
         Window.Dispose();
     }

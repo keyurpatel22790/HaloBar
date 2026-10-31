@@ -41,8 +41,6 @@ internal sealed class SettingsWindow : NativeWindow
     private readonly TextField _search;
     private GraphicsDevice _gfx;
     private CompositionSurface _surface;
-    private SKCanvas? _canvas;
-    private SKBitmap? _canvasBitmap;
     private TextField? _focused;
     // Windows' live blur behind the window; the screen copy only where that isn't available.
     private readonly AcrylicBackdrop? _backdrop;
@@ -57,7 +55,9 @@ internal sealed class SettingsWindow : NativeWindow
     public double LastFrame { get; private set; } = double.NegativeInfinity;
     public bool Visible => IsWindowVisible(Handle);
     /// <summary>The last frame drawn (for snapshots).</summary>
-    public SKBitmap Picture => _surface.Bitmap;
+    /// <summary>The last frame drawn after <see cref="CaptureNextFrame"/> (for snapshots).</summary>
+    public SKBitmap? Picture => _surface.Captured;
+    public void CaptureNextFrame() => _surface.CaptureNext = true;
 
     public SettingsWindow(Hub hub, GraphicsDevice gfx, Action applyLayout)
         : base("HaloBar.Settings", WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW)
@@ -141,7 +141,6 @@ internal sealed class SettingsWindow : NativeWindow
     public void ReplaceSurface(GraphicsDevice gfx)
     {
         _gfx = gfx;
-        DropCanvas();
         _surface.Dispose();
         GetClientRect(Handle, out var client);
         _surface = new CompositionSurface(gfx, Handle, Math.Max(1, client.Width), Math.Max(1, client.Height));
@@ -152,15 +151,9 @@ internal sealed class SettingsWindow : NativeWindow
 
     public bool Render(double now, double dt)
     {
-        if (!ReferenceEquals(_canvasBitmap, _surface.Bitmap))
-        {
-            DropCanvas();
-            _canvasBitmap = _surface.Bitmap;
-            _canvas = new SKCanvas(_canvasBitmap);
-        }
         _scroll.Step(dt);
         if (_options.TakeFocus() is { } capture) Focus(capture);
-        var canvas = _canvas!;
+        var canvas = _surface.BeginFrame();
         canvas.RestoreToCount(1);
         canvas.ResetMatrix();
         var scale = Scale;
@@ -484,18 +477,11 @@ internal sealed class SettingsWindow : NativeWindow
         return null;
     }
 
-    private void DropCanvas()
-    {
-        _canvas?.Dispose();
-        _canvas = null;
-        _canvasBitmap = null;
-    }
 
     public override void Dispose()
     {
         _glass?.Dispose();
         _backdrop?.Dispose();
-        DropCanvas();
         _surface.Dispose();
         base.Dispose();
     }
