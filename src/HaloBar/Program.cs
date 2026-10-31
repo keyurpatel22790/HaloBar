@@ -321,6 +321,7 @@ internal sealed class IslandApp : IDisposable
         var shelf = new ShelfService(settings);
         var clipboard = new ClipboardService(_host.Handle, settings.ClipboardHistorySize, Post);
         clipboard.UseSnippets(() => settings.Snippets, settings.Save);
+        var stats = new StatsService();
         _hub = new Hub
         {
             Settings = settings,
@@ -336,7 +337,7 @@ internal sealed class IslandApp : IDisposable
             Notices = new NoticeHistory(),
             Notifications = new NotificationService(),
             Weather = new WeatherService(settings),
-            Stats = new StatsService(),
+            Stats = stats,
             Timer = new TimerService(settings),
             Reminders = new ReminderService(settings),
             Calendar = new CalendarService(settings),
@@ -346,6 +347,7 @@ internal sealed class IslandApp : IDisposable
             Wifi = new WifiService(),
             Profiles = new ProfileService(settings, _controls, settings.Save, ApplyLayout),
             Network = new NetworkHealth(() => settings.NetworkWatch),
+            Health = new HealthWatch(settings, stats),
             Layouts = new LayoutService(settings, settings.Save),
             Agents = _agents,
             Launcher = _launcher,
@@ -782,6 +784,8 @@ internal sealed class IslandApp : IDisposable
             ? new Hud(HudIcon.Info, "Back online", Detail: h.Network.PingMs is { } ms ? $"{ms} ms" : null)
             : new Hud(HudIcon.Info, "Internet is down", Detail: "HaloBar tells you when it's back", Tint: Red), TimeSpan.FromSeconds(3)));
         h.Network.Start();
+        h.Health.Alert += (title, detail) => Post(() => ShowNotice(new Notice("PC health", title, detail, null, DateTime.Now)));
+        h.Health.Start();
         h.Power.Changed += () => Post(CheckChargeLimit);
         h.Web.Focusing = () => h.Timer.Phase == TimerPhase.Focus && !h.Timer.Paused;
         h.Bluetooth.Changed += Invalidate;
@@ -1673,6 +1677,7 @@ internal sealed class IslandApp : IDisposable
         _hub.Stats.Dispose();
         _hub.Calendar.Dispose();
         _hub.Network.Dispose();
+        _hub.Health.Dispose();
         _hub.Lyrics.Dispose();
         _hub.Downloads.Dispose();
         _hub.Ticker.Dispose();

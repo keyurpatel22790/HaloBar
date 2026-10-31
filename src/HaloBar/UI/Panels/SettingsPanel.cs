@@ -183,6 +183,8 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
                 [("instagram.com, facebook.com, x.com, reddit.com", "Social sites"),
                  ("instagram.com, facebook.com, x.com, reddit.com, youtube.com", "Social sites and YouTube"), ("", "None")],
                 () => s.FocusBlockedSites, v => s.FocusBlockedSites = v),
+            Toggle("PC health alerts", $"CPU over {HealthWatch.CpuHot:0}°C or GPU over {HealthWatch.GpuHot:0}°C for a minute, memory over {HealthWatch.MemoryFull:P0}, the Windows drive nearly full",
+                () => s.PcHealthAlerts, v => s.PcHealthAlerts = v),
             Toggle("Watch the internet", "A ping every 20 seconds; says when it drops and comes back", () => s.NetworkWatch, v => s.NetworkWatch = v),
             Named("Charge reminder", "Says when to unplug, for a longer-lasting battery", [("80", "At 80%"), ("90", "At 90%"), ("0", "Off")],
                 () => s.ChargeLimit.ToString(), v => s.ChargeLimit = int.Parse(v)),

@@ -247,8 +247,56 @@ internal sealed class BatteryTile(Hub hub) : Tile(hub)
         ui.Text(status, t.Left + 14, t.Top + 96, t.Width - 28, 11.5f, Theme.Weight.SemiBold, Theme.Dim);
         if (p.TimeLeft is { } left && Settings.ShowBatteryEstimate)
             ui.Text($"{(int)left.TotalHours}h {left.Minutes}m left", t.Left + 14, t.Bottom - 12, t.Width - 28, 10.5f, Theme.Weight.Regular, Theme.Dim);
+        else if (BatteryReport.Wear is { } wear)
+            ui.Text(wear.Cycles is { } c ? $"Health {wear.Health:P0} · {c} cycles" : $"Health {wear.Health:P0}", t.Left + 14, t.Bottom - 12, t.Width - 28, 10.5f, Theme.Weight.Regular, Theme.Dim);
         else if (SystemInfo.BatteryHealth() is { } health)
             ui.Text($"Health {health:P0}", t.Left + 14, t.Bottom - 12, t.Width - 28, 10.5f, Theme.Weight.Regular, Theme.Dim);
+    }
+}
+
+/// <summary>How worn the battery is: what it holds now against what it was made to hold, charge cycles, and capacity over time.</summary>
+internal sealed class BatteryHealthTile(Hub hub) : Tile(hub)
+{
+    public override string Id => "batteryhealth";
+    public override string Name => "Battery health";
+    public override double FrameInterval => 5;
+
+    public override void Draw(Ui ui, SKRect t)
+    {
+        Heading(ui, t, "Battery health");
+        if (!Hub.Power.HasBattery)
+        {
+            Note(ui, t, "No battery", "This PC runs from the wall");
+            return;
+        }
+        if (BatteryReport.Wear is not { } wear)
+        {
+            Note(ui, t, "Reading Windows' battery report…", "");
+            return;
+        }
+        var colour = wear.Health >= 0.8 ? Good : wear.Health >= 0.6 ? Warn : Bad;
+        ui.Text($"{wear.Health:P0}", t.Left + 12, t.Top + 58, t.Width - 24, 30, Theme.Weight.Bold, colour);
+        var detail = $"{wear.FullMwh / 1000.0:0.#} of {wear.DesignMwh / 1000.0:0.#} Wh" + (wear.Cycles is { } c ? $" · {c} cycles" : "");
+        ui.Text(detail, t.Left + 12, t.Top + 76, t.Width - 24, 10.5f, Theme.Weight.Regular, Theme.Dim);
+
+        // Capacity over time, against the design capacity (the top of the chart).
+        var points = wear.History;
+        var chart = new SKRect(t.Left + 12, t.Top + 88, t.Right - 12, t.Bottom - 12);
+        if (points.Count < 2 || chart.Height < 12) return;
+        float min = Math.Min(points.Min(p => p.FullMwh), wear.FullMwh) * 0.97f, max = wear.DesignMwh;
+        if (max <= min) return;
+        using var path = new SKPath();
+        for (var i = 0; i < points.Count; i++)
+        {
+            var x = chart.Left + chart.Width * i / (points.Count - 1);
+            var y = chart.Bottom - chart.Height * (points[i].FullMwh - min) / (max - min);
+            if (i == 0) path.MoveTo(x, y);
+            else path.LineTo(x, y);
+        }
+        using (var guide = new SKPaint { Color = Theme.Overlay(30), StrokeWidth = 1, IsAntialias = true, PathEffect = SKPathEffect.CreateDash([3, 3], 0) })
+            ui.Canvas.DrawLine(chart.Left, chart.Top, chart.Right, chart.Top, guide);
+        using var line = new SKPaint { Color = colour, StrokeWidth = 1.8f, IsAntialias = true, Style = SKPaintStyle.Stroke };
+        ui.Canvas.DrawPath(path, line);
     }
 }
 

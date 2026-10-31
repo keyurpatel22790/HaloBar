@@ -826,3 +826,17 @@ public class LayoutTests
             Assert.Contains(after.Windows, a => a.Exe == w.Exe && a.Left == w.Left && a.Top == w.Top && a.Right == w.Right && a.Bottom == w.Bottom);
     }
 }
+
+public class BatteryReportTests
+{
+    [Fact]
+    public async Task ReadsWindowsBatteryReport()
+    {
+        _ = BatteryReport.Wear; // starts the reading
+        for (var i = 0; i < 60 && BatteryReport.Wear is null; i++) await Task.Delay(500);
+        if (BatteryReport.Wear is not { } wear) return; // a desktop PC: no battery
+        Assert.True(wear.DesignMwh > 0 && wear.FullMwh > 0);
+        Assert.InRange(wear.Health, 0.05, 1.0);
+        Assert.NotEmpty(wear.History);
+    }
+}
