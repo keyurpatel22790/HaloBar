@@ -44,6 +44,9 @@ internal sealed class AcrylicBackdrop : IDisposable
     public static AcrylicBackdrop? Create(IntPtr hwnd)
     {
         if (!Initialize()) return null;
+        // A window only gets a live host backdrop (rather than black) once it asks DWM for one.
+        var on = 1;
+        DwmSetWindowAttribute(hwnd, 17 /* DWMWA_USE_HOSTBACKDROPBRUSH */, ref on, sizeof(int));
         try { return new AcrylicBackdrop(hwnd); }
         catch (Exception ex)
         {
@@ -101,4 +104,6 @@ internal sealed class AcrylicBackdrop : IDisposable
     {
         [PreserveSig] int CreateDesktopWindowTarget(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool isTopmost, out IntPtr target);
     }
+
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }

@@ -1,3 +1,4 @@
+)} than the week before
 )} {Level.ToString(
 )} {Math.Abs(q.ChangePercent):0.00}%
 )} {alert.Level:#,0.##}
@@ -375,6 +376,7 @@ Laps show here
 Laptop screens
 Last quarter
 Last tab
+Last week: {0} on screen
 Launcher icons
 Lavender
 Layout {0}
@@ -522,6 +524,7 @@ Notice time
 Notification
 Notifications
 Notifications and read-outs stay twice as long
+Notifications are back
 Notifications wait in the list
 Notifications, chat and agent pings wait in the list
 Notify when an agent finishes
@@ -541,6 +544,7 @@ Off
 Offline
 On
 On battery
+On the first day of a new week: last week's time, top apps and focus
 On the pill before a calendar meeting
 On the shelf
 Once
@@ -624,6 +628,7 @@ QR code
 QR code copied
 Quiet
 Quiet during focus
+Quiet during meetings
 RAM {0} GB
 Rain
 Rain, snow, fog, stars and sunset light from the live weather (off while saving battery)
@@ -864,12 +869,14 @@ Web extensions
 Web windows won't open them while the timer runs
 Weekdays
 Weekly
+Weekly screen-time report
 What and when
 What are you counting?
 What the PC plays; recordings go to Videos\HaloBar
 WhatsApp|https://web.whatsapp.com/
 When Photoshop, Lightroom, Premiere, Resolve, GIMP, Krita or Blender is in front; one click turns it off
 Where your windows are now
+While a calendar meeting is on; per-app rules can also keep things quiet while an app is in front
 White
 Wi-Fi
 Wi-Fi is off
@@ -916,6 +923,7 @@ day ago
 day to go
 days ago
 days to go
+during {0}
 e.g. Ahmedabad
 e.g. “Trip 20 Dec”
 en-US
@@ -940,9 +948,11 @@ shell:AppsFolder
 shell:AppsFolder\{0}
 small{color:#999}.box{padding:14px;border-radius:14px;background:#1c1c1f;margin:12px 0;white-space:pre-wrap;word-break:break-word}
 the Next meeting tile
-the app in front: click to slim or hide the island over it
+the app in front: click to slim or hide the island over it, or keep notifications quiet while it's in front
 the only app shown (click its name on the music card to change)
 title or body is required
+today · {0} this week
+while {0} is in front
 widget {0} ms each ({1} widgets); {2}
 ws://127.0.0.1:{0}
 yyyyMMdd'T'HHmmss
@@ -961,6 +971,8 @@ zh-TW
 {0} Moderate
 {0} TB
 {0} Very high
+{0} a day
+{0} arrived meanwhile
 {0} changed
 {0} connected
 {0} connected. {1}

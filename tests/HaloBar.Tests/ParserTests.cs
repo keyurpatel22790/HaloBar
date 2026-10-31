@@ -921,3 +921,43 @@ public class WeatherFxTests
     public void A_clear_day_stays_plain() =>
         Assert.False(WeatherFx.Moving(new WeatherSnapshot("Here", 30, 0, true, 32, 24, false, DateTime.Now)));
 }
+
+public class WeeklyReportTests
+{
+    private static ScreenDay Day(string day, double hours, int focus = 0, params (string App, double Hours)[] apps) => new()
+    {
+        Day = day, Seconds = (int)(hours * 3600), FocusMinutes = focus,
+        Apps = apps.ToDictionary(a => a.App, a => (int)(a.Hours * 3600)),
+    };
+
+    [Fact]
+    public void Sums_up_last_week_against_the_week_before()
+    {
+        var monday = new DateTime(2026, 11, 2); // a Monday
+        var history = new List<ScreenDay>
+        {
+            Day("2026-10-19", 4), Day("2026-10-20", 4),                                          // the week before: 8 h
+            Day("2026-10-26", 5, 60, ("chrome", 3), ("code", 1)), Day("2026-10-27", 5, 30, ("chrome", 2), ("winword", 2)), // last week: 10 h
+            Day("2026-11-02", 9, 0, ("game", 9)),                                                  // this week: not counted
+        };
+        var report = ScreenTimeService.Summarise(history, monday);
+        Assert.NotNull(report);
+        Assert.Contains("10h", report.Value.Title);
+        Assert.Contains("25% more", report.Value.Body);
+        Assert.Contains("Chrome 5h", report.Value.Body);
+        Assert.Contains("Word 2h", report.Value.Body);
+        Assert.DoesNotContain("Game", report.Value.Body);
+        Assert.Contains("1h 30m focused", report.Value.Body);
+    }
+
+    [Fact]
+    public void Nothing_without_last_week() =>
+        Assert.Null(ScreenTimeService.Summarise([], new DateTime(2026, 11, 2)));
+
+    [Fact]
+    public void Weeks_start_on_monday()
+    {
+        Assert.Equal(new DateTime(2026, 10, 26), ScreenTimeService.Monday(new DateTime(2026, 11, 1))); // Sunday
+        Assert.Equal(new DateTime(2026, 11, 2), ScreenTimeService.Monday(new DateTime(2026, 11, 2)));  // Monday
+    }
+}

@@ -788,7 +788,8 @@ internal sealed class IslandApp : IDisposable
         h.Health.Alert += (title, detail) => Post(() => ShowNotice(new Notice("PC health", title, detail, null, DateTime.Now)));
         h.Health.Start();
         h.Power.Changed += () => Post(CheckChargeLimit);
-        h.Web.Focusing = () => h.Timer.Phase == TimerPhase.Focus && !h.Timer.Paused;
+        h.Web.Focusing = () => h.Timer.Phase == TimerPhase.Focus && !h.Timer.Paused || AutoFocus != null;
+        h.ScreenTime.WeeklyReport += (title, body) => Post(() => ShowNotice(new Notice("Screen time", title, body, null, DateTime.Now)));
         h.Bluetooth.Changed += Invalidate;
         _ = Task.Run(_controls.StartAsync);
 
@@ -902,8 +903,42 @@ internal sealed class IslandApp : IDisposable
     }
 
     /// <summary>Do not disturb is on, or a focus-timer session is running and that counts as quiet.</summary>
-    private bool Quiet => _settings.DoNotDisturb
+    private bool Quiet => _settings.DoNotDisturb || AutoFocus != null
                           || (_settings.QuietDuringFocus && _hub.Timer.Phase == TimerPhase.Focus && !_hub.Timer.Paused);
+
+    /// <summary>
+    /// Why it's quiet without anyone asking, or null: a calendar meeting is on, or an app set to
+    /// Quiet (Settings › Per-app rules) is in front. Notifications wait and focus sites stay closed.
+    /// </summary>
+    private string? AutoFocus
+    {
+        get
+        {
+            if (_settings.AppRules.Any(r => r.Behaviour == "quiet" && r.Process.Equals(_frontApp, StringComparison.OrdinalIgnoreCase)))
+                return $"while {ScreenTimeService.Pretty(_frontApp)} is in front";
+            if (_settings.QuietInMeetings && _hub.Calendar.Events.FirstOrDefault(e => !e.AllDay && e.Start <= DateTime.Now && e.End > DateTime.Now) is { } meeting)
+                return $"during {meeting.Title}";
+            return null;
+        }
+    }
+
+    private string? _autoFocusShown;
+    private DateTime _quietSince;
+
+    /// <summary>Says on the pill when automatic quiet starts and ends.</summary>
+    private void AnnounceAutoFocus()
+    {
+        var now = AutoFocus;
+        if (now == _autoFocusShown) return;
+        if (now != null && _autoFocusShown == null) _quietSince = DateTime.Now;
+        if (now != null) ShowHud(new Hud(HudIcon.Info, "Quiet", Detail: now), TimeSpan.FromSeconds(2.5));
+        else if (_autoFocusShown != null)
+        {
+            var waiting = _hub.Notices.Items.Count(n => n.Time >= _quietSince);
+            ShowHud(new Hud(HudIcon.Info, "Notifications are back", Detail: waiting > 0 ? $"{waiting} arrived meanwhile" : null), TimeSpan.FromSeconds(2.5));
+        }
+        _autoFocusShown = now;
+    }
 
     private bool _chargeWarned;
 
@@ -1490,6 +1525,7 @@ internal sealed class IslandApp : IDisposable
                 _hub.Timer.Tick();
                 _hub.Reminders.Tick();
                 _hub.ScreenTime.Tick(_frontApp);
+                AnnounceAutoFocus();
                 SyncWidgets();
                 if (_settings.ClipboardKeepHours > 0) _hub.Clipboard.Expire(TimeSpan.FromHours(_settings.ClipboardKeepHours));
                 _exports?.Sync();

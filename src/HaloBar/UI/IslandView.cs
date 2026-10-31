@@ -559,6 +559,12 @@ internal sealed class IslandView
             }
             DrawGlass(canvas, shape, rect, glass);
         }
+        else if (_theme.Surface.Effect == SurfaceEffect.Lens)
+        {
+            // The lens can't read the screen now (shown in screen sharing, or the PC was locked):
+            // Windows' live blur sits behind (the backdrop), and this finishes it like the lens does.
+            DrawGlassLook(canvas, shape, rect, lift);
+        }
         else using (var fill = new SKPaint { Color = _theme.Background, IsAntialias = true })
         {
             // A shadow would show through a see-through surface as a dark smudge.
@@ -712,6 +718,43 @@ internal sealed class IslandView
         using (var wash = new SKPaint { Color = tint })
             canvas.DrawRect(rect, wash);
         canvas.Restore();
+    }
+
+    /// <summary>
+    /// Glass without the lens: a soft shadow, the lens's thin wash (not the surface's heavy tint),
+    /// a bright rim lit from the top left, and a sheen across the top, over Windows' live blur.
+    /// </summary>
+    private void DrawGlassLook(SKCanvas canvas, SKPath shape, SKRect rect, float lift)
+    {
+        using (var shadow = new SKPaint { Color = SKColors.Black.WithAlpha((byte)(40 + 50 * lift)), IsAntialias = true,
+                   MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 6 + 8 * lift) })
+        {
+            // Only outside the glass: inside it would darken what shows through.
+            canvas.Save();
+            canvas.ClipPath(shape, SKClipOperation.Difference, true);
+            canvas.Translate(0, 3 + 5 * lift);
+            canvas.DrawPath(shape, shadow);
+            canvas.Restore();
+        }
+        canvas.Save();
+        canvas.ClipPath(shape, SKClipOperation.Intersect, true);
+        var tint = _theme.DarkText ? SKColors.White.WithAlpha(80) : _theme.Background.WithAlpha((byte)(_theme.Background.Alpha * 0.45f));
+        using (var wash = new SKPaint { Color = tint })
+            canvas.DrawRect(rect, wash);
+        using (var sheen = new SKPaint
+               {
+                   Shader = SKShader.CreateLinearGradient(new SKPoint(rect.MidX, rect.Top), new SKPoint(rect.MidX, rect.Top + Math.Min(60, rect.Height * 0.5f)),
+                       [SKColors.White.WithAlpha(46), SKColors.White.WithAlpha(0)], SKShaderTileMode.Clamp),
+               })
+            canvas.DrawRect(rect, sheen);
+        canvas.Restore();
+        using var rim = new SKPaint
+        {
+            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.6f,
+            Shader = SKShader.CreateLinearGradient(new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Bottom),
+                [SKColors.White.WithAlpha(170), SKColors.White.WithAlpha(40), SKColors.White.WithAlpha(90)], [0, 0.6f, 1], SKShaderTileMode.Clamp),
+        };
+        canvas.DrawPath(shape, rim);
     }
 
     /// <summary>While a game is full screen: CPU, GPU, memory, network and the time, in one line.</summary>
