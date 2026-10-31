@@ -6,7 +6,7 @@ into a card of panels when you rest the pointer on it. Volume, brightness and ba
 appear in it instead of Windows' pop-ups, notifications arrive as compact banners, and a dozen
 small tools live one hover away.
 
-![Surfaces and the Style tab](docs/themes.png)
+![The island open on Home, with the Glass lens surface](docs/screens/home.png)
 
 - **Version:** 0.5.1 · Windows 10 (2004) or later, Windows 11 · x64
 - **Written in:** C# / .NET 10, Win32, SkiaSharp (drawn on the GPU with Direct3D 12), DirectComposition
@@ -119,6 +119,8 @@ wallpaper, also after Win+D):
 
 Sites open in their own windows (Microsoft Edge WebView2), not a browser tab:
 
+![The Web panel](docs/screens/web.png)
+
 - **One window per site**, each in Alt+Tab and the taskbar, remembering where you left it; or
   drop-down mode, where a site hangs under the island and hides when you click away.
 - **Back, Forward, Reload, Home**, Open in browser, Close page; **maximise, minimise, Snap**, and
@@ -178,6 +180,10 @@ included; clicking a layout puts them back and starts any app that isn't running
 
 ## Look and feel
 
+![Home on ten of the sixteen surfaces](docs/surfaces.png)
+
+![The Style tab](docs/screens/style.png)
+
 - **16 surfaces**: Black, Pure black, Graphite, Midnight, Forest, Rosé, Lavender, Peach, Sakura, Mint,
   Aurora (drifting), Acrylic, Frost, Candy glass, Album (follows the cover art) and **Glass lens** — a
   liquid-glass lens that bends and blurs what's behind the island, with highlights and a soft shadow.
@@ -226,6 +232,8 @@ A shortcut another app already holds is skipped and noted in the log.
 Open the island's Settings tab, or **Open window** for a separate Settings window with a sidebar
 and search: General, Appearance, Accessibility, Read-outs, Music, Stats and gaming, Clipboard and
 files, Chat, Web, Privacy, Shortcuts, About. Sliders move in steps of 1 and save when let go.
+
+![The Settings window](docs/screens/settings-window.png)
 
 ---
 
