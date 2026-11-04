@@ -52,6 +52,8 @@ internal sealed class Hub
     public required Func<bool> Quiet { get; init; }
     /// <summary>Switches Do not disturb and says so on the pill.</summary>
     public required Action ToggleDoNotDisturb { get; init; }
+    /// <summary>Switches Show in screenshots and sharing and says so.</summary>
+    public required Action ToggleSharing { get; init; }
     public required int ApiPort { get; init; }
     /// <summary>The process name of the app in front, kept current by the frame loop.</summary>
     public string FrontApp { get; set; } = "";

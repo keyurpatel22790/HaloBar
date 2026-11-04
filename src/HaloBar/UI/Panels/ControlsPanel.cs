@@ -116,8 +116,9 @@ internal sealed class ControlsPanel : Panel
             ("Mic", Hub.Microphone.Muted ? Icons.MicOff : Icons.Mic, Hub.Microphone.Available ? !Hub.Microphone.Muted : null, Hub.Microphone.ToggleMute),
             ("Record", Icons.Record, Hub.Recorder.Recording, Hub.ToggleRecording),
             ("Quiet", Icons.Bell, Hub.Settings.DoNotDisturb, Hub.ToggleDoNotDisturb),
+            ("Sharing", Icons.Screen, Hub.Settings.ShowInSharing, Hub.ToggleSharing),
         };
-        const float gap = 8;
+        const float gap = 6;
         var w = (body.Width - 36 - gap * (tiles.Length - 1)) / tiles.Length;
         for (var i = 0; i < tiles.Length; i++)
         {
@@ -128,7 +129,7 @@ internal sealed class ControlsPanel : Panel
             ui.Fill(r, 14, active ? Theme.Accent : Theme.Overlay(ui.Hovering(r) ? (byte)26 : (byte)14));
             var color = on == null ? Theme.Faint : active ? Theme.OnAccent : Theme.Text;
             icon(ui.Canvas, r.Left + 20, r.MidY - 7, 17, color);
-            ui.Text(label, r.Left + 10, r.Bottom - 9, r.Width - 16, 10.5f, Theme.Weight.SemiBold, color);
+            ui.Text(label, r.Left + 8, r.Bottom - 9, r.Width - 11, 10, Theme.Weight.SemiBold, color);
             ui.Text(on == null ? "—" : active ? "On" : "Off", r.Right - 10, r.Top + 18, 30, 10, Theme.Weight.Regular, color.WithAlpha(180), SKTextAlign.Right);
             if (on != null) ui.Hit(r, toggle);
         }

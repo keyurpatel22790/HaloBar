@@ -221,9 +221,9 @@ included; clicking a layout puts them back and starts any app that isn't running
   contrast.
 - Hidden until hover, slim over maximised windows, per-app rules (hide, slim or normal while an app is in front),
   hide in full screen.
-- **Show in screen sharing**: on, the island appears in screen shares, screenshots and other apps'
-  recordings (Glass lens then uses Windows' blur, since the lens needs the island kept out of
-  captures); off, it's hidden from them.
+- **Show in screenshots and sharing** (Ctrl+Alt+J): on, the island appears in screenshots, screen
+  shares and other apps' recordings, and the Glass lens fills its own spot from the screen around it;
+  off (the default), it's hidden from them and the lens sees exactly what's behind it.
 
 ---
 
@@ -380,8 +380,6 @@ tests/HaloBar.Tests  parsers and logic: reminders, ICS, lyrics, chat, palette, a
   exit. If HaloBar is killed, it stays hidden until Explorer restarts.
 - **Send to phone** needs the network set to Private; Windows asks once to allow it through the firewall.
 - **Bluetooth:** Windows only lets apps connect and disconnect audio devices (headphones, speakers).
-- **Glass lens and screen sharing:** the lens needs the island kept out of captures; with *Show in
-  screen sharing* on, it uses Windows' blur instead.
 - **Browser extensions** in the web windows don't load yet.
 
 ---

@@ -140,11 +140,12 @@ internal sealed class IslandScreen : IDisposable
     /// </summary>
     private void FeedGlass()
     {
-        // While HaloBar records the screen the island must be in the video, and glass needs it
-        // kept out of captures; it uses Windows' own blur until the recording stops.
-        // Likewise when it's to show in screen sharing (Settings), since glass needs it kept out of captures.
-        var want = View.WantsGlass && DateTime.Now >= _glassRetryAt && !Recording && !Sharing;
-        var exclude = !Sharing && !Recording;
+        // While HaloBar records the screen, or the island is to show in screen sharing (Settings),
+        // it can't be kept out of captures: the copy then has the island itself in it, and that
+        // spot is filled from the screen around it (a wider area is read, for room around it).
+        var seen = Recording || Sharing;
+        var want = View.WantsGlass && DateTime.Now >= _glassRetryAt;
+        var exclude = !seen;
         if (exclude != _excluded)
         {
             Window.SetCaptureExcluded(exclude);
@@ -168,7 +169,7 @@ internal sealed class IslandScreen : IDisposable
             return;
         }
         // Open (or opening): the whole window, so resizing never waits for a copy. Closed: just a
-        // band around the pill, far less to copy 30 times a second. The new area is copied at once.
+        // band around the pill, far less to copy 40 times a second. The new area is copied at once.
         Native.GetWindowRect(Window.Handle, out var w);
         var s = Window.Scale;
         var b = View.Bounds;
@@ -176,7 +177,18 @@ internal sealed class IslandScreen : IDisposable
         var screen = open
             ? new SKRectI(w.Left, w.Top, w.Right, w.Bottom)
             : new SKRectI(w.Left + (int)((b.Left - 24) * s), w.Top, w.Left + (int)Math.Ceiling((b.Right + 24) * s), w.Top + (int)Math.Ceiling((b.Bottom + 20) * s));
-        var picture = _glass.Behind(screen, View.GlassBlur, (open ? 16 : 50) * (View.SaveGlass ? 3 : 1));
+        SKRectI? hole = null;
+        if (seen)
+        {
+            // The island and its shadow, and a band around it to fill from.
+            var island = new SKRectI(w.Left + (int)((b.Left - 14) * s), w.Top + (int)((b.Top - 4) * s),
+                w.Left + (int)Math.Ceiling((b.Right + 14) * s), w.Top + (int)Math.Ceiling((b.Bottom + 26) * s));
+            var m = Monitor.Bounds;
+            var room = (int)(48 * s);
+            screen = SKRectI.Intersect(SKRectI.Inflate(island, room, room), new SKRectI(m.Left, m.Top, m.Right, m.Bottom));
+            hole = island;
+        }
+        var picture = _glass.Behind(screen, View.GlassBlur, (open ? 16 : 25) * (View.SaveGlass ? 3 : 1), hole);
         _shownVersion = _glass.Version;
         RawGlass = picture;
         View.Glass = OnGraphicsCard(picture);
@@ -186,7 +198,7 @@ internal sealed class IslandScreen : IDisposable
         // How bright it is behind, for auto text colour (measured on the copier's thread).
         if (picture != null)
         {
-            View.Theme.BehindBrightness = _glass.Brightness;
+            View.Theme.BehindTone = _glass.Tone;
             _glassRetrySeconds = 5;
         }
     }
@@ -219,7 +231,7 @@ internal sealed class IslandScreen : IDisposable
     }
     /// <summary>Set by the app while its screen recorder runs.</summary>
     public static bool Recording { get; set; }
-    /// <summary>Settings › Show in screen sharing: the island stays visible to captures (and so has no glass).</summary>
+    /// <summary>Settings › Show in screenshots and sharing: the island stays visible to captures (its glass fills its own spot).</summary>
     public static bool Sharing { get; set; }
 
     /// <summary>What the glass is reading, for the log.</summary>
@@ -365,6 +377,7 @@ internal sealed class IslandApp : IDisposable
             ToggleRecording = () => Post(ToggleRecording),
             Quiet = () => Quiet,
             ToggleDoNotDisturb = () => Post(ToggleDoNotDisturb),
+            ToggleSharing = () => Post(ToggleSharing),
             Banners = new BannerService(settings),
             ApiPort = settings.NotifyPort,
             ShowHud = hud => Post(() => ShowHud(hud)),
@@ -817,7 +830,8 @@ internal sealed class IslandApp : IDisposable
             ShowNotice(new Notice("Reminder", r.Text, r.Repeat == ReminderRepeat.None ? "" : $"Repeats {r.Repeat.ToString().ToLowerInvariant()}", null, DateTime.Now));
         });
 
-        _server.Received += n => Post(() => ShowNotice(n));
+        // Scripts' notices get the same one-time-code button as Windows' (an SMS forwarder, say).
+        _server.Received += n => Post(() => ShowNotice(OneTimeCode.Find(n.Title, n.Body) is { } code ? n with { Code = code } : n));
         _server.StyleRequested += (surface, accent, album) => Post(() =>
             _theme.Choose(surface is null ? null : Looks.Surface(surface), accent is null ? null : Looks.Accent(accent), album));
         _server.PanelRequested += name => Post(() => ScreenUnderCursor()?.View.OpenPanel(name));
@@ -877,6 +891,11 @@ internal sealed class IslandApp : IDisposable
         {
             h.Notifications.Arrived += n => Post(() =>
             {
+                if (OneTimeCode.Find(n.Title, n.Body) is { } code)
+                {
+                    n = n with { Code = code };
+                    if (_settings.AutoCopyCodes) _hub.Clipboard.CopyText(code);
+                }
                 ShowNotice(n);
                 _hub.Banners.Quiet(n.AppId);
             });
@@ -959,6 +978,14 @@ internal sealed class IslandApp : IDisposable
         if (_settings.FocusDay != today) (_settings.FocusDay, _settings.FocusMinutesToday) = (today, 0);
         _settings.FocusMinutesToday += minutes;
         _settings.Save();
+    }
+
+    private void ToggleSharing()
+    {
+        _settings.ShowInSharing = !_settings.ShowInSharing;
+        _settings.Save();
+        ShowHud(new Hud(HudIcon.Info, _settings.ShowInSharing ? "Visible in screenshots and shares" : "Hidden from screenshots and shares",
+            Detail: _settings.ShowInSharing ? "Others see the island too" : "Only you see the island"), TimeSpan.FromSeconds(2.5));
     }
 
     private void ToggleDoNotDisturb()
@@ -1182,6 +1209,7 @@ internal sealed class IslandApp : IDisposable
                 ShowHud(new Hud(HudIcon.Info, $"{next} profile", Detail: _hub.Profiles.Use(next) == "Saved" ? "Saved as it is now" : null), TimeSpan.FromSeconds(2));
                 break;
             case "dnd": ToggleDoNotDisturb(); break;
+            case "sharing": ToggleSharing(); break;
             case "record": ToggleRecording(); break;
             case "previous": _hub.Media.Previous(); break;
             case "timer":
@@ -1312,11 +1340,7 @@ internal sealed class IslandApp : IDisposable
             _layoutDirty = true;
             _settings.Save();
         }, _settings.AllMonitors),
-        new("Show in screen sharing", () =>
-        {
-            _settings.ShowInSharing = !_settings.ShowInSharing;
-            _settings.Save();
-        }, _settings.ShowInSharing),
+        new("Show in screenshots and sharing", ToggleSharing, _settings.ShowInSharing),
         new(Menu("Hide the island", "hide"), () => _userHidden = !_userHidden, _userHidden),
         TrayMenuItem.Separator,
         new($"Windows notifications: {_hub.Notifications.Status}", () => { }, Enabled: false),
@@ -1397,6 +1421,7 @@ internal sealed class IslandApp : IDisposable
     }
 
     private int _reminderChimes;
+    private DateTime _nextBannerSweep;
     private DateTime _nextReminderChime;
     private ExportWatcher? _exports;
     private string _warnedColourApp = "";
@@ -1528,6 +1553,12 @@ internal sealed class IslandApp : IDisposable
                 AnnounceAutoFocus();
                 SyncWidgets();
                 if (_settings.ClipboardKeepHours > 0) _hub.Clipboard.Expire(TimeSpan.FromHours(_settings.ClipboardKeepHours));
+                // Apps installed since: their Windows banners go too (cheap: a registry walk every 10 minutes).
+                if (DateTime.Now >= _nextBannerSweep)
+                {
+                    _nextBannerSweep = DateTime.Now.AddMinutes(10);
+                    if (_settings.MirrorNotifications) _ = Task.Run(() => _hub.Banners.QuietEveryApp());
+                }
                 _exports?.Sync();
                 if (_reminderChimes > 0 && DateTime.Now >= _nextReminderChime)
                 {

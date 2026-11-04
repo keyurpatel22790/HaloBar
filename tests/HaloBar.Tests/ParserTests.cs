@@ -961,3 +961,52 @@ public class WeeklyReportTests
         Assert.Equal(new DateTime(2026, 11, 2), ScreenTimeService.Monday(new DateTime(2026, 11, 2)));  // Monday
     }
 }
+
+public class OneTimeCodeTests
+{
+    [Theory]
+    [InlineData("HDFC Bank", "482913 is your OTP for login. Do not share it with anyone.", "482913")]
+    [InlineData("Google", "G-583021 is your Google verification code.", "583021")]
+    [InlineData("Your login code", "Use 7781 to sign in to Swiggy", "7781")]
+    [InlineData("Amazon", "Your one-time password is 90234511. It expires in 10 minutes.", "90234511")]
+    [InlineData("Microsoft account", "Security code: 3920 47", null)] // split codes aren't guessed
+    [InlineData("Paytm", "आपका ओटीपी 552018 है", "552018")]
+    [InlineData("Slack", "Your confirmation code is 120-845", null)]
+    [InlineData("Bank", "Rs. 4500 debited from A/c XX1234. OTP for the next payment is 664210.", "664210")]
+    public void Finds_codes(string title, string body, string? code) => Assert.Equal(code, OneTimeCode.Find(title, body));
+
+    [Theory]
+    [InlineData("HDFC Bank", "Rs 4500 debited from your account on 03-11-2026")]
+    [InlineData("Swiggy", "Your order #482913 is on its way")]
+    [InlineData("WhatsApp", "Mom: call me on 9876543210")]
+    [InlineData("Calendar", "Stand-up at 10:30, room 2026")]
+    [InlineData("Outlook", "Meeting moved to 2026")]
+    [InlineData("Teams", "Riya: the code review is done, 3 comments")]
+    public void Leaves_other_messages_alone(string title, string body) => Assert.Null(OneTimeCode.Find(title, body));
+}
+
+public class BannerSweepTests
+{
+    [Fact]
+    public void Finds_apps_including_path_like_ids()
+    {
+        var root = $@"Software\HaloBarTests\Banners{Guid.NewGuid():N}";
+        try
+        {
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{root}\Chrome")) k.SetValue("LastNotificationAddedTime", 1L, Microsoft.Win32.RegistryValueKind.QWord);
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{root}\{{6D809377}}\Tools\app.exe")) k.SetValue("LastNotificationAddedTime", 1L, Microsoft.Win32.RegistryValueKind.QWord);
+            var banners = new BannerService(new AppSettings { QuietWindowsBanners = true }, root, save: () => { });
+            var apps = banners.KnownApps().ToList();
+            Assert.Contains("Chrome", apps);
+            Assert.Contains(@"{6D809377}\Tools\app.exe", apps);
+            Assert.DoesNotContain("{6D809377}", apps);
+            Assert.Equal(2, banners.QuietEveryApp());
+            using var chrome = Microsoft.Win32.Registry.CurrentUser.OpenSubKey($@"{root}\Chrome");
+            Assert.Equal(0, chrome!.GetValue("ShowBanner"));
+        }
+        finally
+        {
+            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(root, throwOnMissingSubKey: false);
+        }
+    }
+}

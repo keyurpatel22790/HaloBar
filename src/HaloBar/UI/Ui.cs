@@ -250,6 +250,14 @@ internal sealed class Ui(Theme theme, Action<TextField> focus, Func<TextField?> 
         Theme.DrawWrapped(Canvas, text, x, top, maxWidth, maxLines, font, color ?? Theme.Text);
     }
 
+    /// <summary>How many lines <see cref="Wrapped"/> would draw.</summary>
+    public int WrappedLines(string text, float maxWidth, int maxLines, float size)
+    {
+        text = Lang.T(Theme.Visible(text));
+        using var font = Theme.Font(size, Theme.Weight.Regular, text);
+        return Theme.WrapLines(text, maxWidth, maxLines, font).Count;
+    }
+
     public float Measure(string text, float size, Theme.Weight weight = Theme.Weight.Regular)
     {
         text = Lang.T(Theme.Visible(text));

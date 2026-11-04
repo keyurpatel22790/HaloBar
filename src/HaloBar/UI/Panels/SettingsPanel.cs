@@ -162,7 +162,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
         yield return ("App rules", [.. AppRuleRows()]);
         yield return ("Island", [
             Toggle("Hide when something is full screen", null, () => s.HideInFullscreen, v => s.HideInFullscreen = v),
-            Toggle("Show in screen sharing", "Also screenshots and recordings. On, the Glass lens surface uses Windows' blur, since glass needs the island kept out of captures",
+            Toggle("Show in screenshots and sharing", "Screenshots, screen sharing and recordings include the island. Off, Glass is sharpest: it sees exactly what's behind",
                 () => s.ShowInSharing, v => s.ShowInSharing = v),
             Toggle("Every monitor", "One island per screen", () => s.AllMonitors, v => { s.AllMonitors = v; applyLayout(); }),
             Slider("Open delay", "How long the pointer rests before it opens", 0, 800, 1, () => s.HoverDelayMs, v => s.HoverDelayMs = v, " ms", applyLayout),
@@ -178,6 +178,8 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Microphone in screen recordings", "Your voice, mixed with the PC's sound", () => s.RecordMicrophone, v => s.RecordMicrophone = v),
             Toggle("Sound in screen recordings", "What the PC plays; recordings go to Videos\\HaloBar", () => s.RecordSound, v => s.RecordSound = v),
             Toggle("Mirror Windows notifications", "Takes effect after a restart", () => s.MirrorNotifications, v => s.MirrorNotifications = v),
+            Toggle("Copy one-time codes automatically", "An OTP or verification code in a notification is copied as it arrives; otherwise the notice has a Copy button",
+                () => s.AutoCopyCodes, v => s.AutoCopyCodes = v),
             Toggle("Local API", $"Scripts post notices to 127.0.0.1:{s.NotifyPort}; takes effect after a restart", () => s.NotifyEndpoint, v => s.NotifyEndpoint = v),
             Toggle("Do not disturb", "Notifications, chat and agent pings wait in the list", () => s.DoNotDisturb, v => s.DoNotDisturb = v),
             Toggle("Quiet during focus", "Do not disturb while the focus timer runs", () => s.QuietDuringFocus, v => s.QuietDuringFocus = v),
@@ -193,10 +195,10 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Toggle("Watch the internet", "A ping every 20 seconds; says when it drops and comes back", () => s.NetworkWatch, v => s.NetworkWatch = v),
             Named("Charge reminder", "Says when to unplug, for a longer-lasting battery", [("80", "At 80%"), ("90", "At 90%"), ("0", "Off")],
                 () => s.ChargeLimit.ToString(), v => s.ChargeLimit = int.Parse(v)),
-            Toggle("Turn off Windows banners", "For apps shown here; they stay in the notification centre", () => s.QuietWindowsBanners, v =>
+            Toggle("Turn off Windows banners", "For every app (Windows' own alerts keep theirs); notifications show only on the island and stay in the notification centre", () => s.QuietWindowsBanners, v =>
             {
                 s.QuietWindowsBanners = v;
-                if (v) Hub.Banners.QuietAll(Hub.Notices.Items.Select(n => n.AppId));
+                if (v) Hub.Banners.QuietEveryApp();
                 else Hub.Banners.RestoreAll();
             }),
             Toggle("Draw on the graphics card", "Smoother, and lighter on the CPU; takes effect after a restart", () => s.GpuDrawing, v => s.GpuDrawing = v),

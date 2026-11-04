@@ -45,6 +45,15 @@ internal sealed class SettingsWindow : NativeWindow
     // Windows' live blur behind the window; the screen copy only where that isn't available.
     private readonly AcrylicBackdrop? _backdrop;
     private readonly ScreenCopyBackdrop? _glass;
+    // Over Windows' blur: what's around the window, read now and then, for how thick the veil must
+    // be for the text to read (the window shows in captures, so its own spot is filled in).
+    private readonly ScreenCopyBackdrop? _around;
+    private GlassTone _tone = GlassTone.Dark;
+    private double _toneAt;
+    // Light glass (dark text) over a bright screen behind the window, dark glass over a dark one, by
+    // the same rule as the island's glass; _lightness crossfades between them (0 dark, 1 light).
+    private bool _light;
+    private float _lightness;
     private SKImage? _behind;
     private SKPoint? _cursor;
     private int _page;
@@ -84,6 +93,8 @@ internal sealed class SettingsWindow : NativeWindow
             SetWindowDisplayAffinity(Handle, 0x11 /* WDA_EXCLUDEFROMCAPTURE */);
             _glass = new ScreenCopyBackdrop(openMs: 100, smallMs: 100);
         }
+        else _around = new ScreenCopyBackdrop(openMs: 300, smallMs: 300);
+        FirstGuess();
 
         // Centred on the main screen, 920×660 DIPs.
         var primary = Monitors.All().FirstOrDefault(m => m.IsPrimary) ?? Monitors.All()[0];
@@ -127,12 +138,23 @@ internal sealed class SettingsWindow : NativeWindow
         GetClientRect(Handle, out var client);
         var origin = new POINT();
         ClientToScreen(Handle, ref origin);
-        var picture = _glass?.Behind(new SKRectI(origin.X, origin.Y, origin.X + client.Width, origin.Y + client.Height), 100, paceMs: 100);
+        var window = new SKRectI(origin.X, origin.Y, origin.X + client.Width, origin.Y + client.Height);
+        var picture = _glass?.Behind(window, 100, paceMs: 100);
         if (!ReferenceEquals(picture, _behind))
         {
             _behind = picture;
             Dirty = true;
         }
+        if (_around != null)
+        {
+            var room = (int)(36 * Scale);
+            _around.Behind(SKRectI.Inflate(window, room, room), 100, paceMs: 300, hole: window);
+        }
+        // The veil eases to what's behind now.
+        var tone = (_glass ?? _around)?.Tone ?? _tone;
+        if (Math.Abs(tone.High - _tone.High) > 0.01 || Math.Abs(tone.Low - _tone.Low) > 0.01) Dirty = true;
+        if ((_glass ?? _around)?.Version > 0) SetLight(LiquidGlass.WantsDarkText(tone, 1f, _light));
+        if (Math.Abs(_lightness - (_light ? 1 : 0)) > 0.004) Dirty = true;
         // The pointer left without a move message inside: one more frame clears the hover.
         if (_cursor != null && PointerInside(Scale) == null) Dirty = true;
         return Dirty || !_scroll.Settled || (_focused != null && now - LastFrame > 0.25) || now - LastFrame > 1;
@@ -166,10 +188,17 @@ internal sealed class SettingsWindow : NativeWindow
         var theme = _hub.Theme;
         try
         {
-            // Solid colours: the island's surface may be see-through, a window shouldn't be.
-            // Glass: the blurred screen behind the window, then a tint in the island's colours thick
-            // enough to read on (plain colour until the first copy arrives).
-            var dark = Luminance(theme.Text) > 0.5;
+            // Glass, light or dark for what's behind the window: the blurred screen, then a veil as
+            // thin as the look wants and as thick as the text needs (the island's rule), plain colour
+            // until the first copy arrives. The two crossfade, text and all.
+            var step = Math.Clamp(now - _toneAt, 0, 0.1);
+            _lightness += ((_light ? 1 : 0) - _lightness) * (float)(1 - Math.Exp(-step * Theme.TextRate));
+            if (Math.Abs(_lightness - (_light ? 1 : 0)) < 0.004) _lightness = _light ? 1 : 0;
+            var l = _lightness;
+            theme.TextOverride = Theme.Glide(LiquidGlass.LightInk, LiquidGlass.DarkInk, l);
+            var dark = l < 0.5f;
+            _tone = _tone.Toward((_glass ?? _around)?.Tone ?? _tone, Math.Clamp(1 - Math.Exp(-step * 8), 0, 1));
+            _toneAt = now;
             if (_backdrop != null)
             {
                 canvas.Clear(SKColors.Transparent);
@@ -181,18 +210,24 @@ internal sealed class SettingsWindow : NativeWindow
                 using var glass = new SKPaint { IsAntialias = false };
                 canvas.DrawImage(behind, new SKRect(0, 0, size.Width, size.Height), new SKSamplingOptions(SKFilterMode.Linear), glass);
             }
-            // Windows' blur is plainer than the copied one (no colour boost), so it gets a lighter tint.
-            byte veil = _backdrop != null ? (byte)(dark ? 0x90 : 0x98) : (byte)(dark ? 0xA8 : 0xB0);
-            using (var tint = new SKPaint { Color = dark ? new SKColor(0x14, 0x14, 0x18, veil) : new SKColor(0xF6, 0xF6, 0xF8, veil) })
+            var veil = Theme.Glide(
+                new SKColor(0x16, 0x17, 0x1C).WithAlpha((byte)(255 * LiquidGlass.LightHaze(_tone, 0.09, 0.58))),
+                new SKColor(0xF7, 0xF8, 0xFA).WithAlpha((byte)(255 * LiquidGlass.DarkHaze(_tone, 0.5))), l);
+            using (var tint = new SKPaint { Color = veil })
                 canvas.DrawRect(0, 0, size.Width, size.Height, tint);
-            using (var colour = new SKPaint { Color = theme.Background.WithAlpha((byte)Math.Min(40, (int)theme.Background.Alpha)) })
+            // A breath of the island's own colour.
+            using (var colour = new SKPaint { Color = theme.Background.WithAlpha((byte)Math.Min(34 - 20 * l, theme.Background.Alpha)) })
                 canvas.DrawRect(0, 0, size.Width, size.Height, colour);
-            DrawSidebar(new SKRect(0, 0, Sidebar, size.Height));
+            DrawSidebar(new SKRect(10, 10, Sidebar - 4, size.Height - 10));
             DrawContent(new SKRect(Sidebar, 0, size.Width, size.Height));
         }
         catch (Exception ex)
         {
             Log.Write($"Settings window failed to draw: {ex}");
+        }
+        finally
+        {
+            theme.TextOverride = null;
         }
         canvas.Flush();
         LastFrame = now;
@@ -200,10 +235,59 @@ internal sealed class SettingsWindow : NativeWindow
         return _surface.Present();
     }
 
+    /// <summary>
+    /// A floating pane of glass, as macOS and iPadOS 26 draw sidebars and grouped settings: a lighter
+    /// layer with a hairline rim, lit from the top left, catching light again at the bottom right.
+    /// </summary>
+    private void Pane(SKRect r, float radius, bool raised)
+    {
+        var c = _ui.Canvas;
+        if (raised)
+            using (var shadow = new SKPaint { Color = SKColors.Black.WithAlpha((byte)(40 - 22 * _lightness)), IsAntialias = true,
+                       MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 8) })
+            {
+                c.Save();
+                c.ClipRoundRect(new SKRoundRect(r, radius), SKClipOperation.Difference, true);
+                c.DrawRoundRect(SKRect.Inflate(new SKRect(r.Left, r.Top + 3, r.Right, r.Bottom + 3), 0, 0), radius, radius, shadow);
+                c.Restore();
+            }
+        _ui.Fill(r, radius, SKColors.White.WithAlpha((byte)(raised ? 12 + 108 * _lightness : 16 + 134 * _lightness)));
+        using var rim = new SKPaint
+        {
+            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1,
+            Shader = SKShader.CreateLinearGradient(new SKPoint(r.Left, r.Top), new SKPoint(r.Right, r.Bottom),
+                [Rim(64, 250), Rim(14, 120), Rim(34, 210)],
+                [0, 0.55f, 1], SKShaderTileMode.Clamp),
+        };
+        c.DrawRoundRect(SKRect.Inflate(r, -0.5f, -0.5f), radius, radius, rim);
+    }
+
+    private SKColor Rim(byte dark, byte light) => SKColors.White.WithAlpha((byte)(dark + (light - dark) * _lightness));
+
+    /// <summary>Before anything behind has been read: Windows' app mode (Personalisation → Colours).</summary>
+    private void FirstGuess()
+    {
+        var light = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "AppsUseLightTheme", 0) is int v && v == 1;
+        _lightness = light ? 1 : 0;
+        _light = !light; // so SetLight applies it, title bar and all
+        SetLight(light);
+    }
+
+    /// <summary>Light or dark glass from now on, and the title bar to match.</summary>
+    private void SetLight(bool light)
+    {
+        if (light == _light) return;
+        _light = light;
+        var dark = light ? 0 : 1;
+        DwmSetWindowAttribute(Handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref dark, sizeof(int));
+        Dirty = true;
+    }
+
     private void DrawSidebar(SKRect r)
     {
         var theme = _hub.Theme;
-        _ui.Fill(r, 0, theme.Overlay(10));
+        Pane(r, 16, raised: true);
         _ui.Text("HaloBar", r.Left + 22, 40, r.Width - 40, 18, Theme.Weight.Bold);
         _ui.Text("Settings", r.Left + 22, 58, r.Width - 40, 11.5f, Theme.Weight.Regular, theme.Dim);
         _ui.Field(_search, new SKRect(r.Left + 14, 74, r.Right - 14, 104), 12.5f);
@@ -277,7 +361,7 @@ internal sealed class SettingsWindow : NativeWindow
         _ui.Text(Lang.T(section).ToUpper(System.Globalization.CultureInfo.CurrentCulture), left + 4, y + 14, width, 11, Theme.Weight.SemiBold, theme.Accent);
         y += 24;
         var card = new SKRect(left, y, left + width, y + rows.Length * RowHeight);
-        _ui.Fill(card, 12, theme.Overlay(12));
+        Pane(card, 14, raised: false);
         for (var i = 0; i < rows.Length; i++)
         {
             var row = rows[i];
@@ -324,8 +408,6 @@ internal sealed class SettingsWindow : NativeWindow
         ];
         return DrawSection("About", rows, left, y, width);
     }
-
-    private static double Luminance(SKColor c) => (0.2126 * c.Red + 0.7152 * c.Green + 0.0722 * c.Blue) / 255;
 
     // ───────────────────────────── input ─────────────────────────────
 
@@ -481,6 +563,7 @@ internal sealed class SettingsWindow : NativeWindow
     public override void Dispose()
     {
         _glass?.Dispose();
+        _around?.Dispose();
         _backdrop?.Dispose();
         _surface.Dispose();
         base.Dispose();

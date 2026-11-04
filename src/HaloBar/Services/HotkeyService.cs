@@ -111,6 +111,7 @@ internal sealed class HotkeyService(AppSettings settings, IntPtr hwnd, Action? s
         new("clipboard", "Search the clipboard history", "Ctrl+Alt+B"),
         new("profile", "Switch to the next profile", ""),
         new("dnd", "Do not disturb on or off", ""),
+        new("sharing", "Show in screenshots and sharing on or off", "Ctrl+Alt+J"),
         new("launch1", "Open app in slot 1", ""), new("launch2", "Open app in slot 2", ""), new("launch3", "Open app in slot 3", ""),
         new("launch4", "Open app in slot 4", ""), new("launch5", "Open app in slot 5", ""), new("launch6", "Open app in slot 6", ""),
     ];
