@@ -8,7 +8,7 @@ small tools live one hover away.
 
 ![The island open on Home, with the Glass lens surface](docs/screens/home.png)
 
-- **Version:** 0.5.1 · Windows 10 (2004) or later, Windows 11 · x64
+- **Version:** 0.6.0 · Windows 10 (2004) or later, Windows 11 · x64
 - **Written in:** C# / .NET 10, Win32, SkiaSharp (drawn on the GPU with Direct3D 12), DirectComposition
 - **Languages:** 21 (English, हिन्दी, ગુજરાતી, Español, Français, Deutsch, 日本語, 中文 and more)
 
@@ -38,7 +38,7 @@ small tools live one hover away.
 
 ## Install
 
-1. Download `HaloBar-Setup-0.5.1.exe` and run it. It installs for your Windows user only (no
+1. Download `HaloBar-Setup-0.6.0.exe` and run it. It installs for your Windows user only (no
    administrator rights) and is self-contained: nothing else to install.
 2. Windows may show **"Windows protected your PC"** because the installer isn't code-signed yet:
    choose **More info → Run anyway**.
