@@ -51,6 +51,30 @@ internal sealed class IslandView
     private DateTime _hudUntil;
     private Notice? _notice;
     private DateTime _noticeUntil;
+    private TimeSpan _noticeLength = TimeSpan.FromSeconds(5);
+    private bool _noticeHeld;
+    /// <summary>The pointer is on a long notice: it shows its whole message.</summary>
+    private bool _noticeOpen;
+    private const int NoticeMaxLines = 8;
+    private const float NoticeLineHeight = 15.5f;
+
+    /// <summary>How many lines the notice's message takes at the open width (1 = fits the compact pill).</summary>
+    private int NoticeLines(Notice n)
+    {
+        var body = n.Body.ReplaceLineEndings(" ").Trim();
+        if (body.Length == 0) return 0;
+        var width = OpenNoticeWidth(n) - 54 - 18 - (n.Code is { } code ? CodeChipWidth(code) + 10 : 0);
+        return _ui.Measure(body, 11.5f) <= NoticeTextWidth(n) ? 1 : _ui.WrappedLines(body, width, NoticeMaxLines, 11.5f);
+    }
+
+    private float OpenNoticeWidth(Notice n) => n.Code != null ? 520 : 460;
+
+    /// <summary>Room for the message on the compact pill.</summary>
+    private float NoticeTextWidth(Notice n) => NoticeWidthFor(n) - 54 - 18 - (n.Code is { } code ? CodeChipWidth(code) + 10 : 0);
+
+    private float NoticeHeight => _noticeOpen && _notice is { } n ? 34 + NoticeLines(n) * NoticeLineHeight + 14 : 54;
+    /// <summary>A notice's button was just used: the pointer must leave before hovering opens the card.</summary>
+    private bool _quietUntilLeft;
     private TextField? _focused;
     private SKPoint? _cursor;
 
@@ -153,7 +177,9 @@ internal sealed class IslandView
 
     /// <summary>Where the blurred backdrop of a see-through surface should show, in DIPs; null when it shouldn't.</summary>
     public (SKRect Rect, float Radius)? BackdropOutline =>
-        _theme.Surface.SeeThrough && Glass == null && _visible.Value > 0.5 && !SlimNow && !Hidden
+        // Not for the lens's stand-in: Windows only draws that blur for the focused window, and the
+        // island never takes focus, so it would show as flat grey.
+        _theme.Surface.SeeThrough && _theme.Surface.Effect != SurfaceEffect.Lens && Glass == null && _visible.Value > 0.5 && !SlimNow && !Hidden
             ? (Bounds, Math.Min((float)_radius.Value, Bounds.Height / 2))
             : null;
     public bool IsTyping => _focused != null;
@@ -336,7 +362,11 @@ internal sealed class IslandView
         // or a field is being typed into.
         if (!_expanded && !Hidden && (!GameStrip || StripOpens))
         {
-            if (over)
+            // While a notice shows, resting on it doesn't open the card, so its buttons (Copy code)
+            // can be clicked; once it's gone, the hover counts from then.
+            if (!over) _quietUntilLeft = false;
+            if (over && (_quietUntilLeft || _notice != null && _mode == IslandMode.Notice)) _hoverSince = null;
+            else if (over)
             {
                 _hoverSince ??= now;
                 // Over browser tabs (a slim island) wait a little longer, so it never opens on the way past.
@@ -359,13 +389,23 @@ internal sealed class IslandView
             }
         }
 
-        // A notice stays while the pointer rests on it.
-        if (_notice != null && over && _mode == IslandMode.Notice) _noticeUntil = now + TimeSpan.FromSeconds(1.5);
+        // A long notice opens to its whole message while the pointer rests on it, and waits while
+        // it's being read; a short one keeps its time (then the island opens as usual).
+        _noticeOpen = _notice != null && over && _mode == IslandMode.Notice && NoticeLines(_notice) > 1;
+        if (_noticeOpen && _noticeUntil - now < TimeSpan.FromSeconds(1.5)) _noticeUntil = now + TimeSpan.FromSeconds(1.5);
+        // Reached in its last moments, a notice gets two seconds once, so there's time to click.
+        if (_notice != null && over && _mode == IslandMode.Notice && !_noticeHeld && _noticeUntil - now < TimeSpan.FromSeconds(2))
+        {
+            _noticeUntil = now + TimeSpan.FromSeconds(2);
+            _noticeHeld = true;
+        }
         if (_notice != null && now >= _noticeUntil) _notice = null;
         if (_notice == null && !_expanded && _pending.Count > 0)
         {
             _notice = _pending.Dequeue();
-            _noticeUntil = now + TimeSpan.FromSeconds(Math.Clamp(Settings.NotificationSeconds, 2, 30)) * (Settings.LongerNotices ? 2 : 1);
+            _noticeLength = TimeSpan.FromSeconds(Math.Clamp(Settings.NotificationSeconds, 2, 30)) * (Settings.LongerNotices ? 2 : 1);
+            _noticeUntil = now + _noticeLength;
+            _noticeHeld = false;
         }
 
         var mode = _expanded ? IslandMode.Expanded
@@ -386,7 +426,7 @@ internal sealed class IslandView
             IslandMode.Collapsed when GameStrip => (400f, 26f, 13f),
             IslandMode.Collapsed when SlimNow => (150f, 5f, 2.5f),
             IslandMode.Expanded => (ExpandedWidth, ExpandedHeight, 30f),
-            IslandMode.Notice => (NoticeWidth, 54f, 27f),
+            IslandMode.Notice => (NoticeWidth, NoticeHeight, _noticeOpen ? 22f : 27f),
             IslandMode.Hud => (_hud!.Width(_ui), 40f, 20f),
             _ when activity != null => (activity.Width(_ui), 34f, 17f),
             _ => media != null ? (Settings.TitleInPill || Settings.LyricsInPill && Settings.ShowLyrics ? 300f : 120f, 34f, 17f) : (168f, 34f, 17f),
@@ -417,6 +457,7 @@ internal sealed class IslandView
             IslandMode.Collapsed when SlimNow => 1,
             IslandMode.Collapsed when media?.IsPlaying == true && activity == null => 1 / 30.0,
             IslandMode.Collapsed => activity != null ? 0.5 : 1,
+            IslandMode.Notice => 1 / 20.0, // the time-left bar
             _ => 0.25,
         };
         if (_focused != null) interval = Math.Min(interval, 0.25); // caret blink
@@ -426,14 +467,14 @@ internal sealed class IslandView
     }
 
     /// <summary>The notice pill is as wide as its text needs, between a compact and a roomy width.</summary>
-    private float NoticeWidth
+    private float NoticeWidth => _notice is not { } n ? 360 : _noticeOpen ? OpenNoticeWidth(n) : NoticeWidthFor(n);
+
+    /// <summary>The compact pill's width: enough for the title and message, within limits.</summary>
+    private float NoticeWidthFor(Notice n)
     {
-        get
-        {
-            if (_notice is not { } n) return 360;
-            var need = 54 + 20 + Math.Max(_ui.Measure(n.Title.Length > 0 ? n.Title : n.App, 13, Theme.Weight.SemiBold) + 70, _ui.Measure(n.Body, 11.5f));
-            return Math.Clamp(need, 300, 420);
-        }
+        var need = 54 + 20 + Math.Max(_ui.Measure(n.Title.Length > 0 ? n.Title : n.App, 13, Theme.Weight.SemiBold) + 70, _ui.Measure(n.Body, 11.5f));
+        if (n.Code is { } code) need += CodeChipWidth(code) + 10;
+        return Math.Clamp(need, 300, n.Code != null ? 480 : 420);
     }
 
     /// <summary>The resting island is a thin line right now (covered, an app rule, or hidden until hover).</summary>
@@ -548,17 +589,7 @@ internal sealed class IslandView
 
         var lift = Math.Clamp((rect.Height - 34) / 120f, 0, 1);
         if (Glass is { } glass && _theme.Surface.Effect == SurfaceEffect.Lens)
-        {
-            using (var shadow = new SKPaint { Color = SKColors.Black.WithAlpha((byte)(40 + 50 * lift)), IsAntialias = true,
-                       MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 6 + 8 * lift) })
-            {
-                canvas.Save();
-                canvas.Translate(0, 3 + 5 * lift);
-                canvas.DrawPath(shape, shadow);
-                canvas.Restore();
-            }
-            DrawGlass(canvas, shape, rect, glass);
-        }
+            DrawGlass(canvas, shape, rect, glass, lift);
         else if (_theme.Surface.Effect == SurfaceEffect.Lens)
         {
             // The lens can't read the screen now (shown in screen sharing, or the PC was locked):
@@ -582,9 +613,8 @@ internal sealed class IslandView
                 edge.Shader = ring;
                 edge.StrokeWidth = 1.6f;
             }
-            if (edge.Color.Alpha > 0 || ring != null) canvas.DrawPath(shape, edge);
+            if ((edge.Color.Alpha > 0 || ring != null) && _theme.Surface.Effect != SurfaceEffect.Lens) canvas.DrawPath(shape, edge);
         }
-        _theme.Sheen(canvas, shape, rect);
         if (WeatherShown)
         {
             canvas.Save();
@@ -638,86 +668,14 @@ internal sealed class IslandView
 
     // ───────────────────────────── glass ─────────────────────────────
 
-    // The lens, in SkSL (Skia's shading language), after the look of Apple's Liquid Glass. Near the
-    // outline the glass is thick: what's behind is pulled in from further inside, more steeply
-    // toward the edge, so the rim magnifies; red and blue bend a little differently for a fringe.
-    // Light from the top left catches the rim where it faces that way, with a fainter glint on the
-    // far side, and the bevel darkens slightly where it faces away. Written for HaloBar.
-    private const string LensSksl = @"
-        uniform shader behind;
-        uniform float2 centre;
-        uniform float2 extent;   // half the island's width and height
-        uniform float radius;
-        uniform float ring;      // how far in from the outline the glass bends
-        uniform float bend;      // how far the picture is pulled in, right at the outline
-        half4 main(float2 p) {
-            float2 q = abs(p - centre) - (extent - radius);
-            float edge = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-            float k = clamp(1.0 + edge / ring, 0.0, 1.0);
-            float curve = k * k * k;
-            float2 outward = sign(p - centre) * max(q, float2(0.0));
-            float2 n = outward / max(length(outward), 0.0001);
-            float2 o = -n * bend * curve;
-            half3 c;
-            c.r = behind.eval(p + o * 1.25).r;
-            c.g = behind.eval(p + o).g;
-            c.b = behind.eval(p + o * 0.75).b;
-            float2 toLight = normalize(float2(-0.45, -0.9));
-            float facing = max(dot(n, toLight), 0.0);
-            float away = max(dot(n, -toLight), 0.0);
-            float rim = smoothstep(0.7, 1.0, k);
-            c += half3(rim * (0.42 * facing + 0.06) + smoothstep(0.85, 1.0, k) * away * 0.16);
-            c *= half(1.0 - 0.08 * curve * (1.0 - facing));
-            return half4(c, 1.0);
-        }";
-
-    private static readonly SKRuntimeEffect? Lens = BuildLens();
-
-    private static SKRuntimeEffect? BuildLens()
+    /// <summary>The island as a piece of Liquid Glass over the picture of the screen behind it.</summary>
+    private void DrawGlass(SKCanvas canvas, SKPath shape, SKRect rect, SKImage glass, float lift)
     {
-        var effect = SKRuntimeEffect.CreateShader(LensSksl, out var errors);
-        if (effect == null) Log.Write($"Glass: lens shader didn't build: {errors}");
-        return effect;
-    }
-
-    /// <summary>
-    /// The island as a piece of glass: the blurred screen behind it, a bent and fringed rim, then a
-    /// thin tint so text stays readable. Only the rim runs the shader; the middle is a plain image.
-    /// </summary>
-    private void DrawGlass(SKCanvas canvas, SKPath shape, SKRect rect, SKImage glass)
-    {
-        canvas.Save();
-        canvas.ClipPath(shape, SKClipOperation.Intersect, true);
-        var area = GlassArea.IsEmpty ? rect : GlassArea;
-        var toIsland = SKMatrix.CreateScaleTranslation(area.Width / glass.Width, area.Height / glass.Height, area.Left, area.Top);
-        var sampling = new SKSamplingOptions(SKFilterMode.Linear);
-        using (var behind = glass.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, sampling, toIsland))
-        using (var plain = new SKPaint { Shader = behind })
-        {
-            canvas.DrawRect(rect, plain);
-            var radius = Math.Min((float)_radius.Value, rect.Height / 2);
-            var ring = Math.Min(22, rect.Height / 2.2f);
-            if (Lens != null)
-            {
-                var uniforms = new SKRuntimeEffectUniforms(Lens)
-                {
-                    ["centre"] = new[] { rect.MidX, rect.MidY },
-                    ["extent"] = new[] { rect.Width / 2, rect.Height / 2 },
-                    ["radius"] = radius,
-                    ["ring"] = ring,
-                    ["bend"] = ring * 1.15f,
-                };
-                var children = new SKRuntimeEffectChildren(Lens) { ["behind"] = behind };
-                using var lens = Lens.ToShader(uniforms, children);
-                using var rim = new SKPaint { Shader = lens, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = ring * 2 };
-                canvas.DrawPath(shape, rim);
-            }
-        }
-        // A thin wash: the glass reads as glass, and text on it stays legible (light under dark text).
-        var tint = _theme.DarkText ? SKColors.White.WithAlpha(70) : _theme.Background.WithAlpha((byte)(_theme.Background.Alpha * 0.32f));
-        using (var wash = new SKPaint { Color = tint })
-            canvas.DrawRect(rect, wash);
-        canvas.Restore();
+        var t = _theme.Text;
+        // How far the text has turned dark (0 light, 1 dark), evenly through its crossfade.
+        var dark = (float)Math.Clamp((0.97 - (t.Red * 0.3 + t.Green * 0.59 + t.Blue * 0.11) / 255) / 0.89, 0, 1);
+        Rendering.LiquidGlass.Draw(canvas, shape, rect, Math.Min((float)_radius.Value, rect.Height / 2), glass,
+            GlassArea.IsEmpty ? rect : GlassArea, lift, dark, _theme.SmoothTone, Prefs.GlassFrost, _theme.Background);
     }
 
     /// <summary>
@@ -738,8 +696,16 @@ internal sealed class IslandView
         }
         canvas.Save();
         canvas.ClipPath(shape, SKClipOperation.Intersect, true);
-        var tint = _theme.DarkText ? SKColors.White.WithAlpha(80) : _theme.Background.WithAlpha((byte)(_theme.Background.Alpha * 0.45f));
-        using (var wash = new SKPaint { Color = tint })
+        // No picture of what's behind (and Windows' blur never draws for the island), so this is a
+        // deliberate dark glass: a deep gradient, opaque enough that unblurred text behind doesn't
+        // show through as a smudge; light glass under dark text.
+        SKColor[] body = _theme.DarkText
+            ? [new SKColor(0xF7, 0xF8, 0xFB, 252), new SKColor(0xE4, 0xE7, 0xEE, 254)]
+            : [new SKColor(0x2C, 0x2F, 0x39, 252), new SKColor(0x12, 0x14, 0x1A, 254)];
+        using (var wash = new SKPaint
+               {
+                   Shader = SKShader.CreateLinearGradient(new SKPoint(rect.MidX, rect.Top), new SKPoint(rect.MidX, rect.Bottom), body, SKShaderTileMode.Clamp),
+               })
             canvas.DrawRect(rect, wash);
         using (var sheen = new SKPaint
                {
@@ -755,6 +721,7 @@ internal sealed class IslandView
                 [SKColors.White.WithAlpha(170), SKColors.White.WithAlpha(40), SKColors.White.WithAlpha(90)], [0, 0.6f, 1], SKShaderTileMode.Clamp),
         };
         canvas.DrawPath(shape, rim);
+        _theme.Sheen(canvas, shape, rect);
     }
 
     /// <summary>While a game is full screen: CPU, GPU, memory, network and the time, in one line.</summary>
@@ -832,17 +799,48 @@ internal sealed class IslandView
     /// A notice as a compact two-line pill: the icon, the title in bold with the app small beside
     /// it, and the message on one line underneath (cut short; the full text is in Notifications).
     /// </summary>
+    private float CodeChipWidth(string code) => _ui.Measure($"Copy {code}", 12, Theme.Weight.Bold) + 26;
+
+    /// <summary>
+    /// A notice as a compact pill: the app's icon on a soft tile, the title in bold with the app
+    /// and time small beside it, one line of message, and a thin bar along the bottom for the time
+    /// left. A one-time code gets an accent Copy button.
+    /// </summary>
     private void DrawNotice(SKRect r, Notice n)
     {
-        NoticesPanel.DrawIcon(_ui, n, r.Left + 14 + 15, r.MidY, 15);
+        var open = _noticeOpen && r.Height > 60;
+        var top = open ? r.Top + 27 : r.MidY; // open, the icon and the button stay by the title
+        var tile = new SKRect(r.Left + 10, top - 17, r.Left + 44, top + 17);
+        _ui.Fill(tile, 11, _theme.Overlay(22));
+        NoticesPanel.DrawIcon(_ui, n, tile.MidX, tile.MidY, 12.5f);
+
         var x = r.Left + 54;
-        var width = r.Right - 20 - x;
+        var right = r.Right - 18;
+        SKRect? chip = null;
+        if (n.Code is { } code)
+        {
+            var w = CodeChipWidth(code);
+            chip = new SKRect(right - w, top - 14, right, top + 14);
+            right = chip.Value.Left - 10;
+        }
+        var width = right - x;
         var title = n.Title.Length > 0 ? n.Title : n.App;
         var app = n.Title.Length > 0 && n.App.Length > 0 && n.App != n.Title ? n.App : "";
-        var appWidth = app.Length > 0 ? Math.Min(_ui.Measure(app, 10.5f) + 10, width * 0.4f) : 0;
-        _ui.Text(title, x, r.Top + 22, width - appWidth, 13, Theme.Weight.SemiBold);
-        if (app.Length > 0) _ui.Text(app, r.Right - 20, r.Top + 22, appWidth, 10.5f, Theme.Weight.Regular, _theme.Faint, SKTextAlign.Right);
-        if (n.Body.Length > 0) _ui.Text(n.Body, x, r.Top + 40, width, 11.5f, Theme.Weight.Regular, _theme.Dim);
+        var meta = app.Length > 0 ? $"{app} · now" : "now";
+        var metaWidth = Math.Min(_ui.Measure(meta, 10.5f) + 10, width * 0.45f);
+        _ui.Text(title, x, r.Top + 22, width - metaWidth, 13, Theme.Weight.SemiBold);
+        _ui.Text(meta, right, r.Top + 22, metaWidth, 10.5f, Theme.Weight.Regular, _theme.Faint, SKTextAlign.Right);
+        if (n.Body.Length > 0)
+        {
+            if (open) _ui.Wrapped(n.Body.ReplaceLineEndings(" ").Trim(), x, r.Top + 29, width, NoticeMaxLines, 11.5f, _theme.Dim);
+            else _ui.Text(n.Body.ReplaceLineEndings(" "), x, r.Top + 40, width, 11.5f, Theme.Weight.Regular, _theme.Dim);
+        }
+
+        // Time left.
+        var left = (float)Math.Clamp((_noticeUntil - DateTime.Now) / _noticeLength, 0, 1);
+        if (left > 0)
+            _ui.Fill(new SKRect(r.Left + 22, r.Bottom - 3.5f, r.Left + 22 + (r.Width - 44) * left, r.Bottom - 1.5f), 1, _theme.Accent.WithAlpha(150));
+
         _ui.Hit(r, () =>
         {
             // A notice from an app opens that app; others open the history.
@@ -853,6 +851,18 @@ internal sealed class IslandView
             }
             else Expand(pinned: true);
         });
+        if (chip is { } box && n.Code is { } copy)
+        {
+            _ui.Fill(box, box.Height / 2, _theme.Accent);
+            _ui.Text($"Copy {copy}", box.MidX, box.MidY + 4.3f, box.Width, 12, Theme.Weight.Bold, _theme.OnAccent, SKTextAlign.Center);
+            _ui.Hit(box, () =>
+            {
+                _hub.Clipboard.CopyText(copy);
+                _hub.ShowHud(new Hud(HudIcon.Copied, copy, Detail: "Code copied"));
+                _notice = null;
+                _quietUntilLeft = true;
+            });
+        }
     }
 
     private void DrawExpanded(SKRect r)

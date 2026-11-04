@@ -9,8 +9,9 @@ internal sealed class AppSettings
     private static readonly string FilePath = Path.Combine(AppPaths.Folder, "settings.json");
 
     /// <summary>
-    /// The island shows in screen sharing, screenshots and other apps' recordings. Off, it's kept out
-    /// of them, which the glass lens needs (it copies the screen behind it); on, glass uses Windows' blur.
+    /// The island shows in screenshots, screen sharing and other apps' recordings. Off (the default),
+    /// it's kept out of them, so the glass lens reads exactly what's behind it; on, the lens fills its
+    /// own spot in the copy from the screen around it, which is close but less exact.
     /// </summary>
     public bool ShowInSharing { get; set; }
     /// <summary>A code from <see cref="UI.Lang.Available"/>; "auto" follows Windows.</summary>
@@ -23,6 +24,8 @@ internal sealed class AppSettings
     public bool ClipboardEnabled { get; set; } = true;
     public int ClipboardHistorySize { get; set; } = 16;
     public bool MirrorNotifications { get; set; } = true;
+    /// <summary>A one-time code in a notification goes to the clipboard as it arrives (otherwise one click on the notice).</summary>
+    public bool AutoCopyCodes { get; set; }
     /// <summary>Notifications, chat and agent pings wait in the list instead of popping up.</summary>
     public bool DoNotDisturb { get; set; }
     /// <summary>Do not disturb while a focus-timer session runs.</summary>

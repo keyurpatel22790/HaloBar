@@ -53,6 +53,7 @@ All day
 Also screenshots and recordings. On, the Glass lens surface uses Windows' blur, since glass needs the island kept out of captures
 Alt
 Amount
+An OTP or verification code in a notification is copied as it arrives; otherwise the notice has a Copy button
 App rules
 Apps
 Apps that use the camera or microphone show up here
@@ -174,6 +175,7 @@ Clipboard is empty
 Close page
 Close the chat overlay
 Cloudy
+Code copied
 Colourful
 Connect
 Connected
@@ -190,8 +192,10 @@ Copied
 Copied maths, units, money, colours and links get a result on the pill; click to copy or open it
 Copied text on the phone page
 Copied · on the shelf
+Copy one-time codes automatically
 Copy text from the screen
 Copy text, files or pictures and they'll wait here
+Copy {0}
 Corners
 Couldn't connect to {0}
 Couldn't connect to {0} ({1})
@@ -217,6 +221,7 @@ Ctrl+Alt+E
 Ctrl+Alt+F
 Ctrl+Alt+H
 Ctrl+Alt+I
+Ctrl+Alt+J
 Ctrl+Alt+K
 Ctrl+Alt+M
 Ctrl+Alt+O
@@ -296,7 +301,7 @@ Focus timer
 Fog
 Folder not found
 Folder picker
-For apps shown here; they stay in the notification centre
+For every app (Windows' own alerts keep theirs); notifications show only on the island and stay in the notification centre
 Forest
 Forget
 Found
@@ -314,7 +319,9 @@ German
 Git
 Glass blur
 Glass lens
+Glass lens back on
 Glass screen copy
+Glass uses Windows' blur meanwhile
 Glass, Frost and Candy: lower is clearer, higher is frostier
 Glob
 Glow around videos
@@ -335,6 +342,7 @@ Hazardous
 Health {0}
 Health {0} · {1} cycles
 Here
+Hidden from screen shares
 Hidden until hover
 Hide the Windows volume pop-up
 Hide the island
@@ -565,6 +573,7 @@ Open log
 Open size
 Open the island
 Open window
+Open {0}
 Opening {0}…
 Opens and closes without bouncing
 Opens on
@@ -710,12 +719,14 @@ Set a city
 Set a city on Weather
 Settings
 Settings…
+Sharing
 Shell_SecondaryTrayWnd
 Shell_TrayWnd
 Shift
 Show
 Show as a list
 Show in screen sharing
+Show in screen sharing on or off
 Show it everywhere
 Show on every monitor
 Show or hide the web drawer
@@ -850,6 +861,7 @@ Urdu
 Use OBS's own settings
 VS Code
 Very unhealthy
+Visible in screen shares
 Visual Studio
 Volume
 Waiting for OBS…
@@ -1007,6 +1019,7 @@ zh-TW
 {0} {1} to {2}
 {0} · HaloBar
 {0} · copied; click to open
+{0} · now
 {0} · on the shelf; click to open
 {0} · only this app
 {0}% · plug in soon

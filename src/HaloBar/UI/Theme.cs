@@ -39,14 +39,40 @@ internal sealed class Theme : IDisposable
         ? c.WithAlpha((byte)Math.Clamp(c.Alpha * (0.35f + Prefs.GlassFrost * 1.3f), 0, 255))
         : c;
     public SKColor Edge => _edge;
-    public SKColor Text => _text;
-    public SKColor Dim => _text.WithAlpha(Prefs.HighContrast ? (byte)0xD0 : (byte)0x99);
-    public SKColor Faint => _text.WithAlpha(Prefs.HighContrast ? (byte)0x80 : (byte)0x33);
-    public SKColor Accent => _accent;
+    public SKColor Text => TextOverride ?? _text;
+    public SKColor Dim => Text.WithAlpha(Prefs.HighContrast ? (byte)0xD0 : (byte)0x99);
+    public SKColor Faint => Text.WithAlpha(Prefs.HighContrast ? (byte)0x80 : (byte)0x33);
+
+    /// <summary>
+    /// Text in another colour while a window with a look of its own draws (Settings follows Windows'
+    /// light or dark mode, not what's behind the island); null for the island's own.
+    /// </summary>
+    public SKColor? TextOverride { get; set; }
+    /// <summary>
+    /// The accent. On light glass (dark text) it's deepened as far as it takes to read as text
+    /// there (a bright yellow becomes amber): accents label things, on any background.
+    /// </summary>
+    public SKColor Accent => (Surface.Effect == SurfaceEffect.Lens || TextOverride != null) && DarkText ? Deepened(_accent) : _accent;
     /// <summary>Text or icons drawn on top of the accent colour.</summary>
-    public SKColor OnAccent => Luminance(_accent) > 0.55 ? new SKColor(0x16, 0x16, 0x18) : SKColors.White;
+    public SKColor OnAccent => Luminance(Accent) > 0.55 ? new SKColor(0x16, 0x16, 0x18) : SKColors.White;
+
+    private SKColor _deepenedFrom, _deepened;
+
+    /// <summary><paramref name="c"/> darkened (keeping its hue) until it has 3:1 contrast on near-white glass.</summary>
+    internal SKColor Deepened(SKColor c)
+    {
+        if (c == _deepenedFrom) return _deepened;
+        var d = c;
+        for (var i = 0; i < 40 && LiquidGlass.Contrast(LiquidGlass.Grey(Lum(d)), 0.9) < 3.2; i++)
+            d = new SKColor((byte)(d.Red * 0.93), (byte)(d.Green * 0.93), (byte)(d.Blue * 0.93), d.Alpha);
+        (_deepenedFrom, _deepened) = (c, d);
+        return d;
+    }
+
+    private static double Lum(SKColor c) =>
+        0.2126 * LiquidGlass.Linear(c.Red / 255.0) + 0.7152 * LiquidGlass.Linear(c.Green / 255.0) + 0.0722 * LiquidGlass.Linear(c.Blue / 255.0);
     /// <summary>A wash of the text colour, for hover and selection fills on any surface.</summary>
-    public SKColor Overlay(byte alpha) => _text.WithAlpha(alpha);
+    public SKColor Overlay(byte alpha) => Text.WithAlpha(alpha);
 
     /// <summary>Raised when the user picks a different look, so it can be saved.</summary>
     public event Action? Changed;
@@ -88,10 +114,16 @@ internal sealed class Theme : IDisposable
         _top = Glide(_top, top, k);
         _bottom = Glide(_bottom, bottom, k);
         _edge = Glide(_edge, edge, k);
-        _text = Glide(_text, text, k);
+        // Text crossfades in about a quarter second, starting the frame the background crosses
+        // over; the glass's haze follows it.
+        _text = Glide(_text, text, (float)(1 - Math.Exp(-dt * TextRate)));
+        // The brightness behind, eased just enough that the glass's tint never steps.
+        if (BehindTone is { } tone) SmoothTone = SmoothTone.Toward(tone, 1 - Math.Exp(-dt * ToneRate));
         _accent = Glide(_accent, accent, k);
         Transitioning = Far(_top, top) || Far(_bottom, bottom) || Far(_edge, edge) || Far(_text, text)
-                        || (!Animated && Far(_accent, accent));
+                        || (!Animated && Far(_accent, accent))
+                        || (BehindTone is { } b && (Math.Abs(b.Mean - SmoothTone.Mean) > 0.004 || Math.Abs(b.High - SmoothTone.High) > 0.004
+                                                     || Math.Abs(b.Low - SmoothTone.Low) > 0.004));
     }
 
     private (SKColor Top, SKColor Bottom, SKColor Edge, SKColor Text, SKColor Accent) Targets()
@@ -129,12 +161,20 @@ internal sealed class Theme : IDisposable
     /// How bright the screen behind the glass is (0–1), from the picture the lens reads; null when
     /// no surface reads it. Auto text turns dark over a bright background and light over a dark one.
     /// </summary>
-    public double? BehindBrightness { get; set; }
+    public double? BehindBrightness => BehindTone?.Mean;
+
+    /// <summary>How bright the screen behind is, and its darkest and brightest parts; null when no surface reads it.</summary>
+    public GlassTone? BehindTone { get; set; }
+
+    /// <summary><see cref="BehindTone"/> eased over about a tenth of a second.</summary>
+    public GlassTone SmoothTone { get; private set; } = GlassTone.Dark;
+
+    /// <summary>Per second: text crossfades in about a quarter second; the tone settles in about a tenth.</summary>
+    internal const double TextRate = 12, ToneRate = 22;
     private bool _darkOverGlass;
-    private DateTime? _flipSince;
 
     /// <summary>Text is dark on light (so washes and shadows should be light).</summary>
-    public bool DarkText => Luminance(_text) < 0.5;
+    public bool DarkText => Luminance(Text) < 0.5;
 
     private SKColor TextFor(SurfaceLook s)
     {
@@ -144,17 +184,11 @@ internal sealed class Theme : IDisposable
             case "black": return new SKColor(0x16, 0x16, 0x1A);
             case var hex when hex.StartsWith('#') && SKColor.TryParse(hex, out var custom): return custom;
         }
-        if (s.Effect != SurfaceEffect.Lens || BehindBrightness is not { } light) return s.Text;
-        // A gap between the two switch points, and the background has to stay on the other side
-        // for over a second: a window passing behind, or the island opening, doesn't flip the text.
-        var wants = light > 0.62 ? true : light < 0.48 ? false : _darkOverGlass;
-        if (wants == _darkOverGlass) _flipSince = null;
-        else if ((_flipSince ??= DateTime.Now) < DateTime.Now.AddSeconds(-1.2))
-        {
-            _darkOverGlass = wants;
-            _flipSince = null;
-        }
-        return _darkOverGlass ? new SKColor(0x14, 0x14, 0x18) : new SKColor(0xF7, 0xF7, 0xFA);
+        if (s.Effect != SurfaceEffect.Lens || BehindTone is not { } tone) return s.Text;
+        // At once, no waiting: the gap between the two switch points keeps it from flickering,
+        // and the glass's haze keeps either colour readable meanwhile.
+        _darkOverGlass = LiquidGlass.WantsDarkText(tone, Prefs.GlassFrost, _darkOverGlass);
+        return _darkOverGlass ? LiquidGlass.DarkInk : LiquidGlass.LightInk;
     }
 
     /// <summary>A soft shadow under text helps it read on see-through and busy backgrounds.</summary>
@@ -201,7 +235,7 @@ internal sealed class Theme : IDisposable
         canvas.Restore();
     }
 
-    private static SKColor Glide(SKColor from, SKColor to, float k) => new(
+    internal static SKColor Glide(SKColor from, SKColor to, float k) => new(
         (byte)Math.Round(from.Red + (to.Red - from.Red) * k),
         (byte)Math.Round(from.Green + (to.Green - from.Green) * k),
         (byte)Math.Round(from.Blue + (to.Blue - from.Blue) * k),
@@ -349,6 +383,17 @@ internal sealed class Theme : IDisposable
     public void DrawWrapped(SKCanvas canvas, string text, float x, float top, float maxWidth, int maxLines, SKFont font, SKColor color)
     {
         var lineHeight = font.Size * 1.3f;
+        var shown = WrapLines(text, maxWidth, maxLines, font);
+        for (var i = 0; i < shown.Count; i++)
+            DrawLine(canvas, shown[i], x, top + font.Size + i * lineHeight, maxWidth, font, color);
+    }
+
+    /// <summary>The lines <paramref name="text"/> wraps into at <paramref name="maxWidth"/>: at most <paramref name="maxLines"/>, the last ellipsised if there was more.</summary>
+    public static List<string> WrapLines(string text, float maxWidth, int maxLines, SKFont font)
+    {
+        // Drawn text is shaped (kerning, ligatures, fallback fonts) and can come out a little wider
+        // than measured here; a small margin keeps a wrapped line from being cut short with "…".
+        maxWidth *= 0.96f;
         var lines = new List<string>();
         foreach (var para in Visible(text).Replace("\r", "").Split('\n'))
         {
@@ -370,8 +415,7 @@ internal sealed class Theme : IDisposable
         }
         var shown = lines.Take(maxLines).ToList();
         if (lines.Count > maxLines && shown.Count > 0) shown[^1] += "…";
-        for (var i = 0; i < shown.Count; i++)
-            DrawLine(canvas, shown[i], x, top + font.Size + i * lineHeight, maxWidth, font, color);
+        return shown;
     }
 
     /// <summary>

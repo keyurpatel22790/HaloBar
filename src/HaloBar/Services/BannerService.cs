@@ -23,6 +23,14 @@ internal sealed class BannerService(AppSettings settings, string root = BannerSe
     /// <summary>Stops the banner for <paramref name="appId"/> if the setting is on. Returns true if it changed anything.</summary>
     public bool Quiet(string? appId)
     {
+        // The sweep for new apps runs off the window thread; arriving notifications on it.
+        lock (_gate) return QuietLocked(appId);
+    }
+
+    private readonly object _gate = new();
+
+    private bool QuietLocked(string? appId)
+    {
         if (!settings.QuietWindowsBanners || string.IsNullOrWhiteSpace(appId)) return false;
         // Windows' own alerts (low battery, USB, updates) keep their banners.
         if (appId.StartsWith("Windows.SystemToast.", StringComparison.OrdinalIgnoreCase)) return false;
@@ -47,8 +55,50 @@ internal sealed class BannerService(AppSettings settings, string root = BannerSe
     /// <summary>Quiets every app in <paramref name="appIds"/> (the ones already shown), for when the setting is switched on.</summary>
     public int QuietAll(IEnumerable<string?> appIds) => appIds.Distinct().Count(Quiet);
 
+    /// <summary>
+    /// Quiets every app Windows keeps notification settings for, not only those that have shown
+    /// something on the island yet, so even an app's first notification appears only here.
+    /// </summary>
+    public int QuietEveryApp() => settings.QuietWindowsBanners ? QuietAll(KnownApps()) : 0;
+
+    /// <summary>
+    /// The apps under the settings key. A key with values is an app; a path-like id
+    /// ("{GUID}\Folderpp.exe") is kept as nested keys, so a key with only subkeys is walked into.
+    /// </summary>
+    public IEnumerable<string> KnownApps()
+    {
+        var found = new List<string>();
+        try
+        {
+            using var top = Registry.CurrentUser.OpenSubKey(root);
+            if (top != null) Walk(top, "", found);
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        {
+            Log.Write($"Banners: couldn't list apps: {ex.Message}");
+        }
+        return found;
+    }
+
+    private static void Walk(RegistryKey key, string path, List<string> found)
+    {
+        foreach (var name in key.GetSubKeyNames())
+        {
+            using var child = key.OpenSubKey(name);
+            if (child == null) continue;
+            var id = path.Length == 0 ? name : $@"{path}\{name}";
+            if (child.ValueCount > 0 || child.SubKeyCount == 0) found.Add(id);
+            else Walk(child, id, found);
+        }
+    }
+
     /// <summary>Puts back every banner switch HaloBar changed, unless the user has changed it since.</summary>
     public int RestoreAll()
+    {
+        lock (_gate) return RestoreLocked();
+    }
+
+    private int RestoreLocked()
     {
         var restored = 0;
         foreach (var (appId, before) in settings.QuietedBanners.ToList())

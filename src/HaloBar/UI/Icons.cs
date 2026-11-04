@@ -515,6 +515,16 @@ internal static class Icons
         c.DrawCircle(cx, cy, 6.2f * s, p);
     }
 
+    /// <summary>A monitor on a stand.</summary>
+    public static void Screen(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        using var p = Stroke(color, size * 0.09f);
+        var w = size * 0.42f;
+        c.DrawRoundRect(new SKRect(cx - w, cy - size * 0.34f, cx + w, cy + size * 0.18f), size * 0.07f, size * 0.07f, p);
+        c.DrawLine(cx, cy + size * 0.18f, cx, cy + size * 0.33f, p);
+        c.DrawLine(cx - size * 0.2f, cy + size * 0.36f, cx + size * 0.2f, cy + size * 0.36f, p);
+    }
+
     public static void Record(SKCanvas c, float cx, float cy, float size, SKColor color)
     {
         using var f = FillPaint(color);
