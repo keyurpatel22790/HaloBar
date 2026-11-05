@@ -55,8 +55,13 @@ internal readonly record struct GlassTone(double Mean, double Low, double High, 
 
 internal static class GlassLight
 {
-    /// <summary>The mean and the spread of brightness of a picture, from a sparse grid of its pixels.</summary>
-    public static GlassTone Tone(SKImage image)
+    /// <summary>
+    /// The mean and the spread of brightness of a picture, from a sparse grid of its pixels.
+    /// <paramref name="skip"/> (picture pixels) is left out: while recording, the island's own spot
+    /// is patched from its surroundings, and that guess must not sway the brightness the glass reads,
+    /// or it blinks as the patch comes out a shade darker or lighter each frame.
+    /// </summary>
+    public static GlassTone Tone(SKImage image, SKRectI? skip = null)
     {
         // Only the blurred picture (the top half; the sharp one is below it).
         using var all = SKBitmap.FromImage(image);
@@ -70,6 +75,7 @@ internal static class GlassLight
         for (int y = step / 2, row = 0; y < pixels.Height; y += step, row++)
             for (var x = (row * 5 + step / 2) % step; x < pixels.Width; x += step)
             {
+                if (skip is { } s && x >= s.Left && x < s.Right && y >= s.Top && y < s.Bottom) continue;
                 var c = pixels.GetPixel(x, y);
                 // True luminance (as contrast is judged), as the grey that has it: a pure red counts as the mid grey it looks.
                 var l = LiquidGlass.Grey(0.2126 * LiquidGlass.Linear(c.Red / 255.0) + 0.7152 * LiquidGlass.Linear(c.Green / 255.0) + 0.0722 * LiquidGlass.Linear(c.Blue / 255.0));
@@ -223,7 +229,7 @@ internal sealed class GlassBackdrop : IGlassSource
         if (picture == null) return _image;
         _image?.Dispose();
         (_image, _imageFor, _imageBlur, _imageHole, _imageClassic) = (picture, screen, blur, hole, Prefs.GlassClassic);
-        Tone = GlassLight.Tone(picture);
+        Tone = GlassLight.Tone(picture, HoleInPicture(hole, screen, blur));
         Version++;
         return _image;
     }
@@ -398,6 +404,15 @@ internal sealed class GlassBackdrop : IGlassSource
     /// <summary>The height of the blurred picture in a glass picture (the sharp one sits below it).</summary>
     public static int PictureHeight(SKImage glass) => Math.Max(1, glass.Height / 2);
 
+    /// <summary>A hole (screen pixels) as a rectangle in the shrunk picture, a little wider to be safe, or null.</summary>
+    public static SKRectI? HoleInPicture(SKRectI? hole, SKRectI screen, int blur)
+    {
+        if (hole is not { } h) return null;
+        var k = ShrinkFor(blur);
+        return new SKRectI((h.Left - screen.Left) / k - 1, (h.Top - screen.Top) / k - 1,
+            (h.Right - screen.Left) / k + 2, (h.Bottom - screen.Top) / k + 2);
+    }
+
     public static SKImage ShrinkAndBlur(IntPtr pixels, int w, int h, int rowBytes, int blur, SKRectI? hole = null)
     {
         var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Opaque);
@@ -499,10 +514,16 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
                 var image = Copy(want, blur, hole is { } o ? new SKRectI(o.Left - want.Left, o.Top - want.Top, o.Right - want.Left, o.Bottom - want.Top) : null);
                 if (image == null)
                 {
-                    Working = false;
-                    Log.Write("Glass: the screen copy failed; the lens keeps Windows' blur");
-                    return;
+                    // A single GDI copy can fail for a moment (common while a recording starts or the
+                    // island's capture flag flips). Keep the last picture and try again shortly rather
+                    // than killing the thread, or one blip would leave the glass dead until restart.
+                    _copyFails++;
+                    if (_copyFails == 1 || _copyFails % 25 == 0)
+                        Log.Write($"Glass: the screen copy failed ({_copyFails}×); retrying, the lens keeps the last picture meanwhile");
+                    _wake.WaitOne(Math.Min(1000, 100 * _copyFails));
+                    continue;
                 }
+                _copyFails = 0;
                 // Same as last time (nothing moved behind): keep the old picture, so nothing redraws.
                 var print = Fingerprint(image);
                 if (print == _lastPrint && want == _lastWant && blur == _lastBlur && hole == null && _classic == _lastClassic)
@@ -512,7 +533,7 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
                     continue;
                 }
                 (_lastPrint, _lastWant, _lastBlur, _lastClassic) = (print, want, blur, _classic);
-                var light = GlassLight.Tone(image);
+                var light = GlassLight.Tone(image, GlassBackdrop.HoleInPicture(hole, want, blur));
                 lock (_gate)
                 {
                     // A newer picture replaces one nobody was given; the one handed out stays.
@@ -528,6 +549,7 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
 
     private readonly AutoResetEvent _wake = new(false);
     private int _pace = 33;
+    private int _copyFails;
     private long _lastPrint;
     private SKRectI _lastWant;
     private int _lastBlur;
