@@ -71,6 +71,34 @@ public class GlassRenderTests
         }
     }
 
+    [Fact]
+    public void WhatsInTheHoleNeverSwaysTheMeasuredBrightness()
+    {
+        // The glass patches its own spot while recording; that patch, however dark or bright, must
+        // not move the brightness the glass reads, or the island blinks once a frame.
+        static SKImage Picture(SKColor around, SKColor patch)
+        {
+            using var surface = SKSurface.Create(new SKImageInfo(240, 160, SKColorType.Bgra8888, SKAlphaType.Premul));
+            surface.Canvas.Clear(around);
+            using var p = new SKPaint { Color = patch };
+            surface.Canvas.DrawRect(new SKRect(80, 50, 160, 110), p); // the "hole"
+            return surface.Snapshot();
+        }
+        var hole = new SKRectI(80, 50, 160, 110);
+        var grey = new SKColor(0x88, 0x88, 0x88);
+        using var black = Picture(grey, SKColors.Black);
+        using var white = Picture(grey, SKColors.White);
+        using var same = Picture(grey, grey);
+        var tBlack = GlassLight.Tone(black, hole);
+        var tWhite = GlassLight.Tone(white, hole);
+        var tSame = GlassLight.Tone(same, hole);
+        Assert.True(Math.Abs(tBlack.Mean - tWhite.Mean) < 0.01, $"patch swayed the mean: {tBlack.Mean:0.000} vs {tWhite.Mean:0.000}");
+        Assert.True(Math.Abs(tBlack.Mean - tSame.Mean) < 0.01 && Math.Abs(tBlack.High - tSame.High) < 0.02 && Math.Abs(tBlack.Low - tSame.Low) < 0.02,
+            $"excluding the hole should read the surround: {tBlack} vs {tSame}");
+        // Measured over an image whose top half is one shade, the mean should be that shade (~0.53 for 0x88).
+        Assert.InRange(tBlack.Mean, 0.45, 0.62);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
