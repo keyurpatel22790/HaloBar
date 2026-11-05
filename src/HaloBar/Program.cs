@@ -74,6 +74,7 @@ internal sealed class IslandScreen : IDisposable
     private bool _excluded;
     /// <summary>After the screen reader stops (PC locked, display mode change), when to try a fresh one.</summary>
     private DateTime _glassRetryAt;
+    private bool _glassGdiOnly;
     private double _glassRetrySeconds = 5;
 
     public IslandScreen(OverlayWindow window, GraphicsDevice gfx, IslandView view)
@@ -156,16 +157,22 @@ internal sealed class IslandScreen : IDisposable
             View.Glass = null;
             return;
         }
-        _glass ??= (IGlassSource?)GlassBackdrop.Create(_gfx, Monitor.Handle) ?? new ScreenCopyBackdrop();
+        // Desktop duplication is tried first (smoother behind video); but some outputs (an HDR or
+        // mirrored monitor) duplicate only blank frames, so once one proves itself a dud we remember
+        // to use the plain screen copy for this screen instead.
+        _glass ??= (_glassGdiOnly ? null : (IGlassSource?)GlassBackdrop.Create(_gfx, Monitor.Handle)) ?? new ScreenCopyBackdrop();
         if (_glass == null || !_glass.Working)
         {
-            // Windows' own blur for a few seconds, then a fresh reader: duplication and screen copies
-            // stop while the PC is locked or a display changes mode, and work again after.
-            _glassRetryAt = DateTime.Now.AddSeconds(_glassRetrySeconds);
-            _glassRetrySeconds = Math.Min(60, _glassRetrySeconds * 2); // a locked PC: try less often
+            if (_glass is GlassBackdrop { NeverDelivered: true }) _glassGdiOnly = true;
             _glass?.Dispose();
             _glass = null;
             View.Glass = null;
+            // Switch straight to the screen copy; otherwise back off and retry (locked PC, mode change).
+            if (!_glassGdiOnly)
+            {
+                _glassRetryAt = DateTime.Now.AddSeconds(_glassRetrySeconds);
+                _glassRetrySeconds = Math.Min(60, _glassRetrySeconds * 2);
+            }
             return;
         }
         // Open (or opening): the whole window, so resizing never waits for a copy. Closed: just a

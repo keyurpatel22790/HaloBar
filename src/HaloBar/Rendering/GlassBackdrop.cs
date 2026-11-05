@@ -203,6 +203,15 @@ internal sealed class GlassBackdrop : IGlassSource
     public SKRectI Area => _imageFor;
     public GlassTone Tone { get; private set; } = GlassTone.Dark;
 
+    private readonly DateTime _bornAt = DateTime.Now;
+    private bool _sawContent;
+    /// <summary>
+    /// True once duplication has run a while but only ever produced blank (all-zero) frames — which
+    /// happens for some outputs (an HDR monitor, a mirrored or protected one): the caller then falls
+    /// back to a plain screen copy, which always returns pixels.
+    /// </summary>
+    public bool NeverDelivered => !_sawContent && DateTime.Now - _bornAt > TimeSpan.FromSeconds(1.5);
+
     public void Poll()
     {
         TakeNewFrame();
@@ -230,6 +239,12 @@ internal sealed class GlassBackdrop : IGlassSource
         _image?.Dispose();
         (_image, _imageFor, _imageBlur, _imageHole, _imageClassic) = (picture, screen, blur, hole, Prefs.GlassClassic);
         Tone = GlassLight.Tone(picture, HoleInPicture(hole, screen, blur));
+        if (Tone.High > 0.01) _sawContent = true;
+        else if (NeverDelivered)
+        {
+            Working = false; // only blank frames from this output; the caller switches to a screen copy
+            Log.Write("Glass: desktop duplication gave only blank frames; switching to a screen copy");
+        }
         Version++;
         return _image;
     }
