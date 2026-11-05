@@ -311,6 +311,8 @@ internal sealed class IslandApp : IDisposable
     private string _frontApp = "";
     private readonly NotifyServer _server;
     private readonly VolumeFlyoutSuppressor _flyout = new();
+    private readonly Platform.DimOverlay _dim = new();
+    private int _dimFor = -1, _warmthFor = -1;
     private readonly TrayIcon _tray;
     private readonly ConcurrentQueue<Action> _ui = new();
     private List<IslandScreen> _screens = [];
@@ -358,6 +360,7 @@ internal sealed class IslandApp : IDisposable
             Theme = _theme,
             Media = new MediaService(settings),
             Volume = new VolumeService(),
+            Mixer = new AudioMixerService(),
             Microphone = new MicrophoneService(),
             Brightness = new BrightnessService(),
             Power = new PowerService(),
@@ -392,10 +395,13 @@ internal sealed class IslandApp : IDisposable
             Web = new WebDrawer(() => ScreenUnderCursor()?.Monitor, Post, url => Open(url), () => settings.WebExtensions,
                 () => (settings.WebAdBlock, settings.WebAdFastForward), settings),
             Recorder = new ScreenRecorder(),
+            KeepAwake = new KeepAwakeService(),
+            Speech = new SpeechService(),
             ToggleRecording = () => Post(ToggleRecording),
             Quiet = () => Quiet,
             ToggleDoNotDisturb = () => Post(ToggleDoNotDisturb),
             ToggleSharing = () => Post(ToggleSharing),
+            ToggleKeepAwake = () => Post(ToggleKeepAwake),
             Banners = new BannerService(settings),
             ApiPort = settings.NotifyPort,
             ShowHud = hud => Post(() => ShowHud(hud)),
@@ -422,6 +428,8 @@ internal sealed class IslandApp : IDisposable
         };
         _hub.Hotkeys.Pressed += OnHotkey;
         _hub.Hotkeys.Register();
+        _hub.KeepAwake.Set(settings.KeepAwake);
+        ApplyDim();
         if (settings.ReplaceVolumePopup) _flyout.Ensure();
         _locks = ReadLocks();
 
@@ -1006,6 +1014,37 @@ internal sealed class IslandApp : IDisposable
             Detail: _settings.ShowInSharing ? "Others see the island too" : "Only you see the island"), TimeSpan.FromSeconds(2.5));
     }
 
+    /// <summary>Applies the software dim and warmth from settings to the screen overlay.</summary>
+    private void ApplyDim()
+    {
+        _dimFor = _settings.ScreenDim;
+        _warmthFor = _settings.ScreenWarmth;
+        _dim.Set(Math.Clamp(_dimFor, 0, 80) / 100f, Math.Clamp(_warmthFor, 0, 100) / 100f);
+    }
+
+    private void ToggleKeepAwake()
+    {
+        _settings.KeepAwake = !_settings.KeepAwake;
+        _settings.Save();
+        _hub.KeepAwake.Set(_settings.KeepAwake);
+        ShowHud(new Hud(HudIcon.Info, _settings.KeepAwake ? "Staying awake" : "Sleep as usual",
+            Detail: _settings.KeepAwake ? "The screen won't dim or sleep" : null), TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>Reads the latest clipboard text aloud, or stops if it's already reading.</summary>
+    private void ReadAloud()
+    {
+        if (_hub.Speech.Speaking) { _hub.Speech.Stop(); ShowHud(new Hud(HudIcon.Info, "Stopped reading"), TimeSpan.FromSeconds(1.5)); return; }
+        var text = _hub.Clipboard.Entries.FirstOrDefault(e => e.Kind == ClipKind.Text)?.Content.Text;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            ShowHud(new Hud(HudIcon.Info, "Nothing to read", Detail: "Copy some text first"), TimeSpan.FromSeconds(2));
+            return;
+        }
+        _hub.Speech.Speak(text);
+        ShowHud(new Hud(HudIcon.Info, "Reading aloud", Detail: text.Length > 40 ? text[..40].Trim() + "…" : text.Trim()), TimeSpan.FromSeconds(2));
+    }
+
     private void ToggleDoNotDisturb()
     {
         _settings.DoNotDisturb = !_settings.DoNotDisturb;
@@ -1222,6 +1261,9 @@ internal sealed class IslandApp : IDisposable
             case "web": ToggleWeb(null); break;
             case "controls": ScreenUnderCursor()?.View.OpenPanel("Controls"); break;
             case "sound-output": ScreenUnderCursor()?.View.OpenPanel("Controls:output"); break;
+            case "mixer": ScreenUnderCursor()?.View.OpenPanel("Controls:mixer"); break;
+            case "keep-awake": ToggleKeepAwake(); break;
+            case "read-aloud": ReadAloud(); break;
             case "clipboard": ScreenUnderCursor()?.View.SearchClipboard(); break;
             case "profile":
                 var next = _hub.Profiles.Next();
@@ -1332,6 +1374,7 @@ internal sealed class IslandApp : IDisposable
         new(Menu("Copy text from the screen", "screentext"), () => TakeScreenshot(SnipPurpose.Text)),
         new(Menu("Scan a QR code", "qr"), () => TakeScreenshot(SnipPurpose.Code)),
         new(Menu("Pick a colour", "color"), PickColor),
+        new(Menu("App volume mixer", "mixer"), () => ScreenUnderCursor()?.View.OpenPanel("Controls:mixer")),
         new(Menu(_hub.Recorder.Recording ? "Stop recording" : "Record the screen", "record"), ToggleRecording),
         new(Menu("Do not disturb", "dnd"), ToggleDoNotDisturb, _settings.DoNotDisturb),
         new(Menu(_hub.Timer.Running ? "Pause focus timer" : "Start focus timer", "timer"), _hub.Timer.Toggle),
@@ -1579,6 +1622,7 @@ internal sealed class IslandApp : IDisposable
                     if (_settings.MirrorNotifications) _ = Task.Run(() => _hub.Banners.QuietEveryApp());
                 }
                 _exports?.Sync();
+                if (_settings.ScreenDim != _dimFor || _settings.ScreenWarmth != _warmthFor) ApplyDim();
                 if (_reminderChimes > 0 && DateTime.Now >= _nextReminderChime)
                 {
                     // Opening the island answers it; otherwise it chimes again.
@@ -1774,6 +1818,7 @@ internal sealed class IslandApp : IDisposable
     public void Dispose()
     {
         _flyout.Dispose();
+        _dim.Dispose();
         _hub.Hotkeys.Unregister();
         _hub.Web.Dispose();
         _hub.Recorder.Dispose();

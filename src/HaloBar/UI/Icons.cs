@@ -516,6 +516,23 @@ internal static class Icons
     }
 
     /// <summary>A monitor on a stand.</summary>
+    /// <summary>A coffee mug, for keep-awake (caffeine).</summary>
+    public static void Cup(SKCanvas c, float cx, float cy, float size, SKColor color)
+    {
+        using var p = Stroke(color, size * 0.09f);
+        var w = size * 0.3f;
+        var body = new SKRect(cx - w, cy - size * 0.22f, cx + w * 0.7f, cy + size * 0.28f);
+        c.DrawRoundRect(body, size * 0.06f, size * 0.06f, p);
+        // Handle.
+        using var path = new SKPath();
+        path.MoveTo(body.Right, cy - size * 0.12f);
+        path.CubicTo(body.Right + size * 0.28f, cy - size * 0.16f, body.Right + size * 0.28f, cy + size * 0.14f, body.Right, cy + size * 0.12f);
+        c.DrawPath(path, p);
+        // Steam.
+        c.DrawLine(cx - size * 0.1f, cy - size * 0.42f, cx - size * 0.1f, cy - size * 0.3f, p);
+        c.DrawLine(cx + size * 0.08f, cy - size * 0.42f, cx + size * 0.08f, cy - size * 0.3f, p);
+    }
+
     public static void Screen(SKCanvas c, float cx, float cy, float size, SKColor color)
     {
         using var p = Stroke(color, size * 0.09f);

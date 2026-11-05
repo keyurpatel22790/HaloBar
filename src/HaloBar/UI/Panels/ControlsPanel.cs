@@ -15,13 +15,17 @@ internal sealed class ControlsPanel : Panel
     private DateTime _devicesReadAt;
 
     /// <summary>The main page, or a list: Wi-Fi networks, Bluetooth devices, sound outputs or inputs.</summary>
-    private enum Page { Main, Wifi, Bluetooth, Output, Input }
+    private enum Page { Main, Wifi, Bluetooth, Output, Input, Mixer }
+    private List<MixerApp> _apps = [];
+    private DateTime _mixerAt;
     private Page _page;
     // The sound devices on the Output/Input page, read now and then (enumerating endpoints isn't free).
     private (string Name, string Id)[] _devices = [];
     private string? _defaultId;
     private DateTime _devicesListAt;
     private Spring _scroll = new(0, 300, 1);
+    private Spring _tileSlide = new(0, 300, 1);
+    private int _tilePage, _tilePages = 1;
     private float _listHeight;
     private readonly TextField _password;
 
@@ -38,7 +42,7 @@ internal sealed class ControlsPanel : Panel
     public override string Title => "Controls";
     public override bool Available => Hub.Settings.ControlsPanel;
     public override void Icon(SKCanvas c, float cx, float cy, float size, SKColor color) => Icons.Sliders(c, cx, cy, size, color);
-    public override double FrameInterval => _page == Page.Main ? 0.5 : 0.25;
+    public override double FrameInterval => _page == Page.Main ? (_tileSlide.Settled ? 0.5 : 0) : 0.25;
 
     public override void Opened()
     {
@@ -59,6 +63,7 @@ internal sealed class ControlsPanel : Panel
         else if (place.Equals("bluetooth", StringComparison.OrdinalIgnoreCase)) Show(Page.Bluetooth);
         else if (place.Equals("output", StringComparison.OrdinalIgnoreCase)) Show(Page.Output);
         else if (place.Equals("input", StringComparison.OrdinalIgnoreCase)) Show(Page.Input);
+        else if (place.Equals("mixer", StringComparison.OrdinalIgnoreCase)) Show(Page.Mixer);
         else Show(Page.Main);
     }
 
@@ -70,11 +75,12 @@ internal sealed class ControlsPanel : Panel
         if (page == Page.Wifi) Hub.Wifi.ScanIfStale();
         if (page == Page.Bluetooth) Hub.Bluetooth.ClearStatus();
         if (page is Page.Output or Page.Input) { _devicesListAt = default; ReadDevices(page); }
+        if (page == Page.Mixer) { _mixerAt = default; _apps = Hub.Mixer.Snapshot(); _mixerAt = DateTime.Now; }
     }
 
     public override IEnumerable<(string Label, Action Click)> Actions => _page switch
     {
-        Page.Wifi or Page.Bluetooth or Page.Output or Page.Input => [("Back", () => Show(Page.Main))],
+        Page.Wifi or Page.Bluetooth or Page.Output or Page.Input or Page.Mixer => [("Back", () => Show(Page.Main))],
         _ => [],
     };
 
@@ -84,11 +90,17 @@ internal sealed class ControlsPanel : Panel
         catch (Exception ex) { Log.Write($"Controls: couldn't open {uri}: {ex.Message}"); }
     }
 
-    public override void Update(double dt) => _scroll.Step(dt);
+    public override void Update(double dt) { _scroll.Step(dt); _tileSlide.Step(dt); }
 
     public override bool Wheel(float notches)
     {
-        if (_page == Page.Main) return false;
+        if (_page == Page.Main)
+        {
+            if (_tilePages <= 1) return false;
+            _tilePage = Math.Clamp(_tilePage + (notches < 0 ? 1 : -1), 0, _tilePages - 1);
+            _tileSlide.Target = _tilePage;
+            return true;
+        }
         _scroll.Target = Math.Clamp(_scroll.Target - notches * 28, 0, Math.Max(0, _listHeight));
         return true;
     }
@@ -108,6 +120,9 @@ internal sealed class ControlsPanel : Panel
                 return;
             case Page.Input:
                 DrawDevices(ui, body, DataFlow.Capture);
+                return;
+            case Page.Mixer:
+                DrawMixer(ui, body);
                 return;
         }
 
@@ -130,14 +145,27 @@ internal sealed class ControlsPanel : Panel
             ("Record", Icons.Record, Hub.Recorder.Recording, Hub.ToggleRecording),
             ("Quiet", Icons.Bell, Hub.Settings.DoNotDisturb, Hub.ToggleDoNotDisturb),
             ("Sharing", Icons.Screen, Hub.Settings.ShowInSharing, Hub.ToggleSharing),
+            ("Awake", Icons.Cup, Hub.Settings.KeepAwake, Hub.ToggleKeepAwake),
         };
+        // Five switches to a page, in a sliding carousel like Home, so each stays big enough to read.
         const float gap = 6;
-        var w = (body.Width - 36 - gap * (tiles.Length - 1)) / tiles.Length;
+        const int perPage = 5;
+        _tilePages = (tiles.Length + perPage - 1) / perPage;
+        _tilePage = Math.Clamp(_tilePage, 0, _tilePages - 1);
+        var slots = Math.Min(perPage, tiles.Length);
+        var w = (body.Width - 36 - gap * (slots - 1)) / slots;
+        var pageW = body.Width - 36 + gap;
+        var tileArea = new SKRect(body.Left + 12, body.Top, body.Right - 12, body.Top + 52);
+        ui.Canvas.Save();
+        ui.Canvas.ClipRect(tileArea);
+        var tileClip = ui.HitClip;
+        ui.HitClip = tileArea;
         for (var i = 0; i < tiles.Length; i++)
         {
             var (label, icon, on, toggle) = tiles[i];
-            var x = body.Left + 18 + i * (w + gap);
+            var x = body.Left + 18 + i % perPage * (w + gap) + (i / perPage - (float)_tileSlide.Value) * pageW;
             var r = new SKRect(x, body.Top + 2, x + w, body.Top + 50);
+            if (r.Right < body.Left || r.Left > body.Right) continue;
             var active = on == true;
             ui.Fill(r, 14, active ? Theme.Accent : Theme.Overlay(ui.Hovering(r) ? (byte)26 : (byte)14));
             var color = on == null ? Theme.Faint : active ? Theme.OnAccent : Theme.Text;
@@ -146,12 +174,29 @@ internal sealed class ControlsPanel : Panel
             ui.Text(on == null ? "—" : active ? "On" : "Off", r.Right - 10, r.Top + 18, 30, 10, Theme.Weight.Regular, color.WithAlpha(180), SKTextAlign.Right);
             if (on != null) ui.Hit(r, toggle);
         }
+        ui.HitClip = tileClip;
+        ui.Canvas.Restore();
+        // Page dots under the tiles, like Home; click one (or scroll the tiles) to turn the page.
+        if (_tilePages > 1)
+        {
+            var dy = body.Top + 58;
+            var startX = body.MidX - (_tilePages - 1) * 6;
+            for (var pg = 0; pg < _tilePages; pg++)
+            {
+                var cx = startX + pg * 12;
+                var chosen = pg;
+                ui.Circle(cx, dy, pg == _tilePage ? 3 : 2.3f, pg == _tilePage ? Theme.Text : Theme.Faint);
+                ui.Hit(new SKRect(cx - 8, dy - 9, cx + 8, dy + 9), () => { _tilePage = chosen; _tileSlide.Target = chosen; });
+            }
+        }
 
-        // Sliders: click anywhere on the track to set; the wheel works too.
-        var y = body.Top + 68;
+        // Sliders: click anywhere on the track to set; the wheel works too. (Below the carousel dots.)
+        var y = body.Top + 74;
         Slider(ui, new SKRect(body.Left + 18, y - 10, body.MidX - 10, y + 10), Hub.Volume.Volume,
             (c, x, yy, s, col) => Icons.Speaker(c, x, yy, s, col, Hub.Volume.Volume, Hub.Volume.Muted),
             v => Hub.Volume.Nudge(v - Hub.Volume.Volume));
+        // The speaker icon by the master volume opens the per-app mixer.
+        ui.Hit(new SKRect(body.Left + 16, y - 12, body.Left + 38, y + 12), () => Show(Page.Mixer));
         if (Hub.Brightness.Supported)
             Slider(ui, new SKRect(body.MidX + 10, y - 10, body.Right - 18, y + 10), Hub.Brightness.Level, Icons.Sun, Hub.Brightness.Set);
         else
@@ -162,8 +207,8 @@ internal sealed class ControlsPanel : Panel
         var wifiChip = ui.Chip(body.Left + 18, y, $"Wi-Fi · {Short(Hub.Wifi.ConnectedSsid ?? (controls.WifiOn == false ? "off" : "networks"), 14)} ›", () => Show(Page.Wifi), size: 11.5f);
         var connected = Hub.Bluetooth.Connected.Count;
         var btChip = ui.Chip(wifiChip.Right + 8, y, $"Bluetooth · {(controls.BluetoothOn == false ? "off" : connected == 0 ? "devices" : $"{connected} on")} ›", () => Show(Page.Bluetooth), size: 11.5f);
-        var chip = ui.Chip(btChip.Right + 8, y, $"Speaker · {Short(_output, 14)} ›", () => Show(Page.Output), size: 11.5f);
-        ui.Chip(chip.Right + 8, y, $"Mic · {Short(_input, 14)} ›", () => Show(Page.Input), size: 11.5f);
+        var chip = ui.Chip(btChip.Right + 8, y, $"Speaker · {Short(_output, 10)} ›", () => Show(Page.Output), size: 11.5f);
+        ui.Chip(chip.Right + 8, y, $"Mic · {Short(_input, 12)} ›", () => Show(Page.Input), size: 11.5f);
 
         // Profiles: the first tap saves how things are now; later taps switch back to it.
         y = body.Top + 132;
@@ -376,6 +421,45 @@ internal sealed class ControlsPanel : Panel
 
     /// <summary>A list page's top line: icon, name, on/off switch and what's going on.</summary>
     // ───────────────────────────── sound output / input ─────────────────────────────
+
+    // ───────────────────────────── app volumes (mixer) ─────────────────────────────
+
+    /// <summary>A slider and mute for each app making sound, so one app can be turned down or muted alone.</summary>
+    private void DrawMixer(Ui ui, SKRect body)
+    {
+        if (DateTime.Now - _mixerAt > TimeSpan.FromSeconds(1)) { _apps = Hub.Mixer.Snapshot(); _mixerAt = DateTime.Now; }
+        var x = body.Right - 18;
+        x = ui.Chip(x - Width(ui, "Sound settings"), body.Top + 14, "Sound settings", () => Open("ms-settings:apps-volume"), size: 11.5f).Left - 8;
+        Header(ui, body, (c, cx, cy, sz, col) => Icons.Speaker(c, cx, cy, sz, col, 1, false), "App volumes", null, () => { },
+            _apps.Count == 0 ? "Nothing is playing" : _apps.Count == 1 ? "1 app" : $"{_apps.Count} apps", x);
+
+        var area = new SKRect(body.Left + 12, body.Top + 32, body.Right - 12, body.Bottom - 4);
+        if (_apps.Count == 0)
+        {
+            ui.Empty(area, "No apps are playing sound", "Play something and it shows up here to control on its own");
+            return;
+        }
+        List(ui, area, _apps.Count, (i, row, y) =>
+        {
+            var a = _apps[i];
+            if (ui.Hovering(row)) ui.Fill(row, 9, Theme.Overlay(10));
+            // The speaker icon mutes this app on click.
+            var mute = new SKRect(row.Left + 4, row.Top + 2, row.Left + 30, row.Bottom - 2);
+            Icons.Speaker(ui.Canvas, row.Left + 18, y - 3, 15, a.Muted ? Theme.Faint : Theme.Text, a.Volume, a.Muted);
+            var app = a;
+            ui.Hit(mute, () => { AudioMixerService.ToggleMute(app); _mixerAt = default; });
+            // Name on the left, a slider and percent on the right.
+            var track = new SKRect(row.Right - 150, row.MidY - 3, row.Right - 46, row.MidY + 3);
+            ui.Text(a.Name, row.Left + 36, y, track.Left - row.Left - 44, 12.5f, a.Muted ? Theme.Weight.Regular : Theme.Weight.SemiBold, a.Muted ? Theme.Dim : Theme.Text);
+            ui.Bar(track, a.Volume, a.Muted ? Theme.Faint : Theme.Text);
+            ui.Circle(track.Left + track.Width * a.Volume, track.MidY, 6, a.Muted ? Theme.Faint : Theme.Text);
+            ui.Text($"{Math.Round(a.Volume * 100)}%", row.Right - 8, y, 40, 11, Theme.Weight.SemiBold, Theme.Dim, SKTextAlign.Right);
+            ui.Hit(new SKRect(track.Left - 6, row.Top, track.Right + 6, row.Bottom), () =>
+            {
+                if (ui.Cursor is { } c) { AudioMixerService.SetVolume(app, Math.Clamp((c.X - track.Left) / track.Width, 0, 1)); _mixerAt = default; }
+            });
+        });
+    }
 
     private void ReadDevices(Page page)
     {

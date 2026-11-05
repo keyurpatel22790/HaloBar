@@ -12,6 +12,7 @@ internal sealed class Hub
     public required Theme Theme { get; init; }
     public required MediaService Media { get; init; }
     public required VolumeService Volume { get; init; }
+    public required AudioMixerService Mixer { get; init; }
     public required MicrophoneService Microphone { get; init; }
     public required BrightnessService Brightness { get; init; }
     public required PowerService Power { get; init; }
@@ -46,6 +47,8 @@ internal sealed class Hub
     public required HotkeyService Hotkeys { get; init; }
     public required Platform.WebDrawer Web { get; init; }
     public required ScreenRecorder Recorder { get; init; }
+    public required KeepAwakeService KeepAwake { get; init; }
+    public required SpeechService Speech { get; init; }
     /// <summary>Starts recording the screen the pointer is on, or stops and saves.</summary>
     public required Action ToggleRecording { get; init; }
     /// <summary>True while pop-ups should wait: Do not disturb is on, or a focus session runs.</summary>
@@ -54,6 +57,8 @@ internal sealed class Hub
     public required Action ToggleDoNotDisturb { get; init; }
     /// <summary>Switches Show in screenshots and sharing and says so.</summary>
     public required Action ToggleSharing { get; init; }
+    /// <summary>Keeps the screen awake on or off, and says so.</summary>
+    public required Action ToggleKeepAwake { get; init; }
     public required int ApiPort { get; init; }
     /// <summary>The process name of the app in front, kept current by the frame loop.</summary>
     public string FrontApp { get; set; } = "";

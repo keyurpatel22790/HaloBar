@@ -17,6 +17,12 @@ internal sealed class AppSettings
     /// <summary>A code from <see cref="UI.Lang.Available"/>; "auto" follows Windows.</summary>
     public string Language { get; set; } = "auto";
     public bool HideInFullscreen { get; set; } = true;
+    /// <summary>Keep the screen and PC awake (caffeine).</summary>
+    public bool KeepAwake { get; set; }
+    /// <summary>Software screen dim, 0–80 (percent darker); works on screens with no hardware brightness.</summary>
+    public int ScreenDim { get; set; }
+    /// <summary>Software warmth, 0–100 (amber tint, less blue).</summary>
+    public int ScreenWarmth { get; set; }
     /// <summary>Hide Windows' own volume pop-up; the island's HUD replaces it.</summary>
     public bool ReplaceVolumePopup { get; set; } = true;
     /// <summary>An island on every monitor, or only on the primary one.</summary>
