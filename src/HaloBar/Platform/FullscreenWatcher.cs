@@ -58,6 +58,48 @@ internal static class FullscreenWatcher
         return new ForegroundInfo(monitor, process, fullscreen, game, maximized);
     }
 
+    /// <summary>Whether the top window on a monitor covers it: maximised (fills the work area) or full screen (the whole monitor).</summary>
+    internal readonly record struct Cover(bool Fullscreen, bool Maximized);
+
+    /// <summary>
+    /// For each monitor, the state of its topmost ordinary window, so every screen's island can slim
+    /// over its own maximised or full-screen window — not only the screen the active window is on.
+    /// </summary>
+    public static Dictionary<IntPtr, Cover> CoverByMonitor(ICollection<IntPtr> ownWindows)
+    {
+        var result = new Dictionary<IntPtr, Cover>();
+        var shell = GetShellWindow();
+        var desktop = GetDesktopWindow();
+        var name = new char[64];
+        EnumWindows((hwnd, _) =>
+        {
+            if (ownWindows.Contains(hwnd) || hwnd == shell || hwnd == desktop) return true;
+            if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return true;
+            // Cloaked windows (another virtual desktop, suspended UWP) are not really on screen.
+            if (DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out var cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
+            var len = GetClassNameW(hwnd, name, name.Length);
+            var cls = new string(name, 0, len);
+            if (cls is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return true;
+            var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (result.ContainsKey(monitor)) return true; // the topmost window for this monitor wins (EnumWindows is front-to-back)
+            var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetWindowRect(hwnd, out var r) || !GetMonitorInfoW(monitor, ref info)) return true;
+            var m = info.rcMonitor;
+            var fullscreen = r.Left == m.Left && r.Top == m.Top && r.Right == m.Right && r.Bottom == m.Bottom;
+            var maximized = !fullscreen && r.Top <= info.rcWork.Top && r.Left <= info.rcWork.Left && r.Right >= info.rcWork.Right;
+            result[monitor] = new Cover(fullscreen, maximized);
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
+
+    private const int DWMWA_CLOAKED = 14;
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr param);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr param);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+
     private static string WindowTitle(IntPtr hwnd) => Native.WindowText(hwnd);
 
     private static string ProcessPath(uint pid)

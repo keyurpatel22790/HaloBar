@@ -181,6 +181,7 @@ internal sealed class AppSettings
     /// <summary>Nothing at the top until the pointer rests on the top edge.</summary>
     public bool HiddenUntilHover { get; set; }
     /// <summary>Collapse to a thin line while a maximised window is in front, so it never covers tabs.</summary>
+    /// <summary>Slim the island to a thin line over a maximised or full-screen window, per screen, so it never covers tabs.</summary>
     public bool SlimWhenCovered { get; set; } = true;
     /// <summary>"relaxed", "normal" or "quick".</summary>
     public string AnimationSpeed { get; set; } = "normal";
