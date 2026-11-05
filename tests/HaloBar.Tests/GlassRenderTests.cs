@@ -37,6 +37,72 @@ public class GlassRenderTests
     }
 
     [Fact]
+    public void ClassicLookDrawsOverEveryBackground()
+    {
+        // The classic smoked glass: always dark, light text; saved for a look when HALOBAR_GLASS_OUT is set.
+        var output = Environment.GetEnvironmentVariable("HALOBAR_GLASS_OUT");
+        foreach (var (name, background) in new (string, Func<SKImage>)[] { ("light", Light), ("dark", Dark), ("wallpaper", Wallpaper) })
+        foreach (var open in new[] { false, true })
+        {
+            using var screen = background();
+            var rect = open ? new SKRect(60, 6, W - 60, H - 24) : new SKRect(W / 2f - 170, 6, W / 2f + 170, 42);
+            var radius = open ? 32f : rect.Height / 2;
+            var area = SKRectI.Intersect(SKRectI.Round(SKRect.Inflate(rect, 24, 20)), new SKRectI(0, 0, W, H));
+            using var full = SKBitmap.FromImage(screen);
+            using var part = new SKBitmap();
+            Assert.True(full.ExtractSubset(part, area));
+            using var glass = GlassBackdrop.ShrinkAndBlur(part.GetPixels(), part.Width, part.Height, part.RowBytes, 62);
+            using var surface = SKSurface.Create(new SKImageInfo(W, H));
+            surface.Canvas.DrawImage(screen, 0, 0);
+            using var shape = new SKPath();
+            shape.AddRoundRect(rect, radius, radius);
+            LiquidGlass.DrawClassic(surface.Canvas, shape, rect, radius, glass, area, GlassLight.Tone(glass), 0.62f);
+            using var paint = new SKPaint { Color = LiquidGlass.LightInk, IsAntialias = true };
+            using var bold = new SKFont(SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold), 13);
+            surface.Canvas.DrawText(open ? "Thursday 5 November" : "Now playing", rect.Left + 26, open ? rect.Top + 40 : rect.MidY + 5, bold, paint);
+            using var shot = surface.Snapshot();
+            using var pixels = SKBitmap.FromImage(shot);
+            // Smoked glass: the middle of the face is darker than a white page behind it.
+            if (name == "light") Assert.True(pixels.GetPixel((int)rect.MidX, (int)rect.MidY).Red < 200);
+            if (output == null) continue;
+            Directory.CreateDirectory(output);
+            using var data = shot.Encode(SKEncodedImageFormat.Png, 100);
+            File.WriteAllBytes(Path.Combine(output, $"classic-{name}-{(open ? "open" : "pill")}.png"), data.ToArray());
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NothingTheGlassDrawsReachesPastItsReach(bool open)
+    {
+        // While recording, the island's spot is cut out of the screen copy as far as Reach says; if
+        // its shadow went further, the glass would read its own shadow and blink.
+        using var white = Draw(c => c.Clear(SKColors.White));
+        var rect = open ? new SKRect(150, 10, W - 150, 250) : new SKRect(W / 2f - 170, 10, W / 2f + 170, 47);
+        var lift = Math.Clamp((rect.Height - 34) / 120f, 0, 1);
+        var area = new SKRectI(0, 0, W, H);
+        using var full = SKBitmap.FromImage(white);
+        using var glass = GlassBackdrop.ShrinkAndBlur(full.GetPixels(), full.Width, full.Height, full.RowBytes, 50);
+        using var surface = SKSurface.Create(new SKImageInfo(W, H));
+        surface.Canvas.Clear(SKColors.White);
+        using var shape = new SKPath();
+        shape.AddRoundRect(rect, 20, 20);
+        LiquidGlass.Draw(surface.Canvas, shape, rect, 20, glass, area, lift, 1, GlassLight.Tone(glass), 0.5f, new SKColor(0x10, 0x12, 0x18, 0x98));
+        using var shot = surface.Snapshot();
+        using var pixels = SKBitmap.FromImage(shot);
+        var (sides, below) = LiquidGlass.Reach(lift);
+        var reach = new SKRect(rect.Left - sides, rect.Top - sides, rect.Right + sides, rect.Bottom + below);
+        for (var y = 0; y < H; y += 2)
+            for (var x = 0; x < W; x += 2)
+            {
+                if (reach.Contains(x, y)) continue;
+                var p = pixels.GetPixel(x, y);
+                Assert.True(p.Red >= 254 && p.Green >= 254 && p.Blue >= 254, $"drawn at {x},{y} ({p}), outside the reach {reach}");
+            }
+    }
+
+    [Fact]
     public void RecordingFillsTheIslandsSpotFromAroundIt()
     {
         // An orange screen with the (black) island itself in the copy, as while recording.

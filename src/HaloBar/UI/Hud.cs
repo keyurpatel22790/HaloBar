@@ -81,8 +81,11 @@ internal sealed record Activity(int Priority, HudIcon Icon, string Text, SKColor
     /// <summary>The pill's button (a meeting's Join), drawn at the right end; clicking it doesn't open the island.</summary>
     private float ButtonWidth(Ui ui) => Button == null || ButtonLabel == null ? 0 : ui.Measure(ButtonLabel, 11.5f) + 22 + 8;
 
+    // A running clock keeps one width ("1:11" as wide as "0:00"), so the pill doesn't resize every second.
     public float Width(Ui ui) =>
-        Math.Clamp(58 + ui.Measure(Text, 12.5f, Theme.Weight.SemiBold) + (Right == null ? 0 : 12 + ui.Measure(Right, 12.5f, Theme.Weight.SemiBold)) + ButtonWidth(ui), 170, 420);
+        Math.Clamp(58 + ui.Measure(Text, 12.5f, Theme.Weight.SemiBold) + (Right == null ? 0 : 12 + ui.Measure(SteadyDigits(Right), 12.5f, Theme.Weight.SemiBold)) + ButtonWidth(ui), 170, 420);
+
+    private static string SteadyDigits(string s) => new(s.Select(c => char.IsAsciiDigit(c) ? '0' : c).ToArray());
 
     public void Draw(Ui ui, SKRect r)
     {
@@ -94,8 +97,8 @@ internal sealed record Activity(int Priority, HudIcon Icon, string Text, SKColor
         if (Button != null && ButtonLabel != null)
             ui.Chip(r.Right - 8 - (button - 8), r.MidY, ButtonLabel, Button, accent: true, size: 11.5f);
         var right = r.Right - button;
-        var rightWidth = Right == null ? 0 : ui.Measure(Right, 12.5f, Theme.Weight.SemiBold) + 12;
+        var rightWidth = Right == null ? 0 : ui.Measure(SteadyDigits(Right), 12.5f, Theme.Weight.SemiBold) + 12;
         ui.Text(Text, r.Left + 36, r.MidY + 4.5f, right - r.Left - 50 - rightWidth, 12.5f, Theme.Weight.SemiBold, t.Text);
-        if (Right != null) ui.Text(Right, right - 14, r.MidY + 4.5f, rightWidth, 12.5f, Theme.Weight.SemiBold, Color, SKTextAlign.Right);
+        if (Right != null) ui.Text(Right, right - 14, r.MidY + 4.5f, rightWidth, 12.5f, Theme.Weight.SemiBold, t.Readable(Color), SKTextAlign.Right);
     }
 }

@@ -22,6 +22,8 @@ internal static class Prefs
     public static string TimeFormat { get; private set; } = "system";
     /// <summary>0–1: how frosty see-through surfaces are; 0.5 is the usual look.</summary>
     public static float GlassFrost { get; private set; } = 0.5f;
+    /// <summary>The Glass lens in its classic look (smoked, always dark) rather than the liquid one.</summary>
+    public static bool GlassClassic { get; private set; }
     /// <summary>"auto", "white", "black" or "#RRGGBB".</summary>
     public static string TextColour { get; private set; } = "auto";
     /// <summary>"auto" (see-through surfaces), "on" or "off".</summary>
@@ -35,6 +37,7 @@ internal static class Prefs
         HighContrast = s.HigherContrast switch { "on" => true, "off" => false, _ => WindowsHighContrast() };
         Bits = s.NetworkInBits;
         GlassFrost = Math.Clamp(s.GlassBlur, 0, 100) / 100f;
+        GlassClassic = s.GlassStyle == "classic";
         Fahrenheit = s.StatsFahrenheit;
         TimeFormat = s.TimeFormat;
         TextColour = s.TextColour;

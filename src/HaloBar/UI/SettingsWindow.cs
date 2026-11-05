@@ -208,7 +208,8 @@ internal sealed class SettingsWindow : NativeWindow
             if (_behind is { } behind)
             {
                 using var glass = new SKPaint { IsAntialias = false };
-                canvas.DrawImage(behind, new SKRect(0, 0, size.Width, size.Height), new SKSamplingOptions(SKFilterMode.Linear), glass);
+                canvas.DrawImage(behind, new SKRect(0, 0, behind.Width, GlassBackdrop.PictureHeight(behind)), new SKRect(0, 0, size.Width, size.Height),
+                    new SKSamplingOptions(SKFilterMode.Linear), glass);
             }
             var veil = Theme.Glide(
                 new SKColor(0x16, 0x17, 0x1C).WithAlpha((byte)(255 * LiquidGlass.LightHaze(_tone, 0.09, 0.58))),

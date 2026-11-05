@@ -56,7 +56,25 @@ internal sealed class Theme : IDisposable
     /// <summary>Text or icons drawn on top of the accent colour.</summary>
     public SKColor OnAccent => Luminance(Accent) > 0.55 ? new SKColor(0x16, 0x16, 0x18) : SKColors.White;
 
-    private SKColor _deepenedFrom, _deepened;
+    private SKColor _deepenedFrom, _deepened, _liftedFrom, _lifted;
+
+    /// <summary>
+    /// <paramref name="c"/> as text on glass: deepened on light glass, lightened (toward white,
+    /// keeping its hue) on dark glass, until it has 3:1 contrast there. Solid surfaces keep it as is.
+    /// </summary>
+    public SKColor Readable(SKColor c)
+    {
+        if (Surface.Effect != SurfaceEffect.Lens && TextOverride == null) return c;
+        if (DarkText) return Deepened(c);
+        if (c == _liftedFrom) return _lifted;
+        var l = c;
+        // The face under light text is at most this bright (the haze keeps it there).
+        var face = LiquidGlass.LightLimit;
+        for (var i = 0; i < 40 && LiquidGlass.Contrast(LiquidGlass.Grey(Lum(l)), face) < 3.2; i++)
+            l = new SKColor((byte)(l.Red + (255 - l.Red) * 0.08), (byte)(l.Green + (255 - l.Green) * 0.08), (byte)(l.Blue + (255 - l.Blue) * 0.08), l.Alpha);
+        (_liftedFrom, _lifted) = (c, l);
+        return l;
+    }
 
     /// <summary><paramref name="c"/> darkened (keeping its hue) until it has 3:1 contrast on near-white glass.</summary>
     internal SKColor Deepened(SKColor c)

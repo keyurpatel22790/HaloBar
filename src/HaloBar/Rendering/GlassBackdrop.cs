@@ -1,3 +1,4 @@
+using HaloBar.UI;
 using SkiaSharp;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -35,13 +36,21 @@ internal interface IGlassSource : IDisposable
 /// How bright a picture is (0–1, as the sRGB grey of the same luminance): on average, and its darker and brighter parts
 /// (the 4th and 96th percentiles), which decide whether text over it can be read.
 /// </summary>
-internal readonly record struct GlassTone(double Mean, double Low, double High)
+/// <param name="Luma">
+/// The plain average of sRGB luma (0.2126 R + 0.7152 G + 0.0722 B), which the classic glass's
+/// smoke follows; it rates saturated colours darker than true luminance does. Null: as Mean.
+/// </param>
+internal readonly record struct GlassTone(double Mean, double Low, double High, double? Luma = null)
 {
     public static readonly GlassTone Dark = new(0.3, 0.2, 0.4);
 
+    /// <summary>The plain sRGB luma average (see the Luma parameter).</summary>
+    public double PlainLuma => Luma ?? Mean;
+
     /// <summary>Eased toward <paramref name="to"/> by <paramref name="k"/> (0–1).</summary>
     public GlassTone Toward(GlassTone to, double k) =>
-        new(Mean + (to.Mean - Mean) * k, Low + (to.Low - Low) * k, High + (to.High - High) * k);
+        new(Mean + (to.Mean - Mean) * k, Low + (to.Low - Low) * k, High + (to.High - High) * k,
+            PlainLuma + (to.PlainLuma - PlainLuma) * k);
 }
 
 internal static class GlassLight
@@ -49,9 +58,12 @@ internal static class GlassLight
     /// <summary>The mean and the spread of brightness of a picture, from a sparse grid of its pixels.</summary>
     public static GlassTone Tone(SKImage image)
     {
-        using var pixels = SKBitmap.FromImage(image);
+        // Only the blurred picture (the top half; the sharp one is below it).
+        using var all = SKBitmap.FromImage(image);
+        using var pixels = new SKBitmap();
+        if (!all.ExtractSubset(pixels, new SKRectI(0, 0, all.Width, GlassBackdrop.PictureHeight(image)))) return GlassTone.Dark;
         var histogram = new int[64];
-        double sum = 0;
+        double sum = 0, luma = 0;
         var n = 0;
         // A denser grid, each row shifted, so fine stripes or checks can't all fall on one shade.
         var step = Math.Max(1, Math.Min(pixels.Width, pixels.Height) / 40);
@@ -62,6 +74,7 @@ internal static class GlassLight
                 // True luminance (as contrast is judged), as the grey that has it: a pure red counts as the mid grey it looks.
                 var l = LiquidGlass.Grey(0.2126 * LiquidGlass.Linear(c.Red / 255.0) + 0.7152 * LiquidGlass.Linear(c.Green / 255.0) + 0.0722 * LiquidGlass.Linear(c.Blue / 255.0));
                 sum += l;
+                luma += (0.2126 * c.Red + 0.7152 * c.Green + 0.0722 * c.Blue) / 255;
                 histogram[Math.Min(63, (int)(l * 64))]++;
                 n++;
             }
@@ -77,7 +90,7 @@ internal static class GlassLight
             }
             return 1;
         }
-        return new GlassTone(sum / n, Percentile(0.04), Percentile(0.96));
+        return new GlassTone(sum / n, Percentile(0.04), Percentile(0.96), luma / n);
     }
 
     /// <summary>
@@ -109,13 +122,23 @@ internal sealed class GlassBackdrop : IGlassSource
     /// How many times smaller than the screen the picture is kept: full size when the glass is
     /// clear (shrunk, sharp text behind turns blocky), smaller as the blur hides the detail anyway.
     /// </summary>
-    public static int ShrinkFor(int blur) => blur < 25 ? 1 : blur < 60 ? 2 : 3;
+    public static int ShrinkFor(int blur) => Prefs.GlassClassic
+        ? Math.Max(1, (int)Math.Round(ClassicSigma(blur) / 2.2f))
+        : blur < 25 ? 1 : blur < 60 ? 2 : 3;
+
+    /// <summary>
+    /// The classic look's blur, in screen pixels: 2.2 at the middle of the slider, four times less
+    /// or more at its ends (2.2 · 4^((blur − 50) / 50)); the picture is shrunk as it grows past 2.2.
+    /// </summary>
+    public static float ClassicSigma(int blur) => 2.2f * MathF.Pow(4, (Math.Clamp(blur, 0, 100) - 50) / 50f);
 
     /// <summary>
     /// The blur, in pixels of the shrunk picture: about 16 screen pixels at most. Even clear glass
     /// softens a little (as Apple's does), so sharp text behind never fights the island's own.
     /// </summary>
-    public static float SigmaFor(int blur) => (2.2f + blur / 100f * 14f) / ShrinkFor(blur);
+    public static float SigmaFor(int blur) => Prefs.GlassClassic
+        ? ClassicSigma(blur) / ShrinkFor(blur)
+        : (2.2f + blur / 100f * 14f) / ShrinkFor(blur);
 
     private static SKImageFilter? BlurFor(int blur) =>
         SigmaFor(blur) is var sigma && sigma < 0.3f ? null : SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp);
@@ -132,6 +155,7 @@ internal sealed class GlassBackdrop : IGlassSource
     private Format _format = Format.B8G8R8A8_UNorm;
     private int _imageBlur = -1;
     private SKRectI? _imageHole;
+    private bool _imageClassic;
     private bool _newFrame;
     private DateTime _lastRead;
 
@@ -190,7 +214,7 @@ internal sealed class GlassBackdrop : IGlassSource
     {
         TakeNewFrame();
         if (_screen == null) return null;
-        var moved = screen != _imageFor || blur != _imageBlur || hole != _imageHole;
+        var moved = screen != _imageFor || blur != _imageBlur || hole != _imageHole || Prefs.GlassClassic != _imageClassic;
         // A new desktop frame is read at most every paceMs; a moved or resized area at once.
         if (!moved && !(_newFrame && DateTime.Now - _lastRead > TimeSpan.FromMilliseconds(paceMs))) return _image;
         _newFrame = false;
@@ -198,7 +222,7 @@ internal sealed class GlassBackdrop : IGlassSource
         var picture = Read(screen, blur, hole);
         if (picture == null) return _image;
         _image?.Dispose();
-        (_image, _imageFor, _imageBlur, _imageHole) = (picture, screen, blur, hole);
+        (_image, _imageFor, _imageBlur, _imageHole, _imageClassic) = (picture, screen, blur, hole, Prefs.GlassClassic);
         Tone = GlassLight.Tone(picture);
         Version++;
         return _image;
@@ -315,6 +339,11 @@ internal sealed class GlassBackdrop : IGlassSource
     /// The shrunk picture made vivid and blurred, with the island's own spot (<paramref name="hole"/>,
     /// in screen pixels of the copy) filled from around it first.
     /// </summary>
+    /// <remarks>
+    /// The picture is two pictures stacked: the blurred one on top, the same unblurred below it
+    /// (Apple's glass is only half blurred near its rim, so the edge reads crisper). See
+    /// <see cref="PictureHeight"/>.
+    /// </remarks>
     private static SKImage Finish(SKImage small, int blur, SKRectI? hole, int shrink)
     {
         var source = small;
@@ -322,9 +351,16 @@ internal sealed class GlassBackdrop : IGlassSource
             source = GlassFill.Fill(small, new SKRectI(o.Left / shrink, o.Top / shrink, (o.Right + shrink - 1) / shrink, (o.Bottom + shrink - 1) / shrink));
         try
         {
-            using var surface = SKSurface.Create(new SKImageInfo(small.Width, small.Height, SKColorType.Bgra8888, SKAlphaType.Premul));
-            using var paint = new SKPaint { ImageFilter = BlurFor(blur), ColorFilter = Vivid };
-            surface.Canvas.DrawImage(source, 0, 0, paint);
+            using var surface = SKSurface.Create(new SKImageInfo(small.Width, small.Height * 2, SKColorType.Bgra8888, SKAlphaType.Premul));
+            using (var paint = new SKPaint { ImageFilter = BlurFor(blur), ColorFilter = Prefs.GlassClassic ? null : Vivid })
+            {
+                surface.Canvas.Save();
+                surface.Canvas.ClipRect(new SKRect(0, 0, small.Width, small.Height));
+                surface.Canvas.DrawImage(source, 0, 0, paint);
+                surface.Canvas.Restore();
+            }
+            using (var paint = new SKPaint { ColorFilter = Prefs.GlassClassic ? null : Vivid })
+                surface.Canvas.DrawImage(source, 0, small.Height, paint);
             return surface.Snapshot();
         }
         finally
@@ -344,7 +380,7 @@ internal sealed class GlassBackdrop : IGlassSource
     }).ToArray();
 
     /// <summary>A little more saturation and light, as colours look through Apple's glass.</summary>
-    private static readonly SKColorFilter Vivid = Saturate(1.35f, 1.0f);
+    private static readonly SKColorFilter Vivid = Saturate(1.12f, 1.0f);
 
     private static SKColorFilter Saturate(float s, float gain)
     {
@@ -358,6 +394,9 @@ internal sealed class GlassBackdrop : IGlassSource
         ];
         return SKColorFilter.CreateColorMatrix(m);
     }
+
+    /// <summary>The height of the blurred picture in a glass picture (the sharp one sits below it).</summary>
+    public static int PictureHeight(SKImage glass) => Math.Max(1, glass.Height / 2);
 
     public static SKImage ShrinkAndBlur(IntPtr pixels, int w, int h, int rowBytes, int blur, SKRectI? hole = null)
     {
@@ -396,6 +435,7 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
     private SKRectI _want;
     private int _blur;
     private SKRectI? _hole;
+    private bool _classic;
     // _given is the picture last handed out (the caller may still be drawing with it); it is only
     // let go once the caller has asked again and been handed a newer one. _image is the newest.
     private SKImage? _image, _given;
@@ -427,7 +467,8 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
         lock (_gate)
         {
             // A different area (the window moved) or blur: copy now rather than at the next turn.
-            if (screen != _want || blur != _blur || hole != _hole) _wake.Set();
+            if (screen != _want || blur != _blur || hole != _hole || Prefs.GlassClassic != _classic) _wake.Set();
+            _classic = Prefs.GlassClassic;
             (_want, _blur, _askedAt, _pace, _hole) = (screen, blur, DateTime.Now, paceMs, hole);
             if (!ReferenceEquals(_given, _image))
             {
@@ -464,13 +505,13 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
                 }
                 // Same as last time (nothing moved behind): keep the old picture, so nothing redraws.
                 var print = Fingerprint(image);
-                if (print == _lastPrint && want == _lastWant && blur == _lastBlur && hole == null)
+                if (print == _lastPrint && want == _lastWant && blur == _lastBlur && hole == null && _classic == _lastClassic)
                 {
                     image.Dispose();
                     _wake.WaitOne(_pace);
                     continue;
                 }
-                (_lastPrint, _lastWant, _lastBlur) = (print, want, blur);
+                (_lastPrint, _lastWant, _lastBlur, _lastClassic) = (print, want, blur, _classic);
                 var light = GlassLight.Tone(image);
                 lock (_gate)
                 {
@@ -490,6 +531,7 @@ internal sealed class ScreenCopyBackdrop : IGlassSource
     private long _lastPrint;
     private SKRectI _lastWant;
     private int _lastBlur;
+    private bool _lastClassic;
 
     /// <summary>A cheap summary of a picture (a sparse grid of its pixels) to tell whether it changed.</summary>
     private static long Fingerprint(SKImage image)
