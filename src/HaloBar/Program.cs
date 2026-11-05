@@ -180,14 +180,24 @@ internal sealed class IslandScreen : IDisposable
         SKRectI? hole = null;
         if (seen)
         {
-            // The island and its shadow, and a band around it to fill from.
-            var island = new SKRectI(w.Left + (int)((b.Left - 14) * s), w.Top + (int)((b.Top - 4) * s),
-                w.Left + (int)Math.Ceiling((b.Right + 14) * s), w.Top + (int)Math.Ceiling((b.Bottom + 26) * s));
+            // The island and everything it draws outside itself (its shadow), and a band around it to fill from.
+            var (sides, below) = Rendering.LiquidGlass.Reach(Math.Clamp((b.Height - 34) / 120f, 0, 1));
+            var island = new SKRectI(w.Left + (int)((b.Left - sides) * s), w.Top + (int)((b.Top - sides) * s),
+                w.Left + (int)Math.Ceiling((b.Right + sides) * s), w.Top + (int)Math.Ceiling((b.Bottom + below) * s));
+            // The copy is taken a moment later, on its own thread, and the island may still be drawn
+            // where it was then (a resize, say the recording timer ticking wider): everywhere it was in
+            // the last third of a second is cut out too, or a sliver of its own glass leaks into the
+            // picture and the whole pill blinks darker for a frame.
+            var now = DateTime.Now;
+            _recentHoles.Enqueue((now, island));
+            while (_recentHoles.Count > 1 && now - _recentHoles.Peek().At > TimeSpan.FromSeconds(0.35)) _recentHoles.Dequeue();
+            foreach (var (_, was) in _recentHoles) island = SKRectI.Union(island, was);
             var m = Monitor.Bounds;
             var room = (int)(48 * s);
             screen = SKRectI.Intersect(SKRectI.Inflate(island, room, room), new SKRectI(m.Left, m.Top, m.Right, m.Bottom));
             hole = island;
         }
+        else _recentHoles.Clear();
         var picture = _glass.Behind(screen, View.GlassBlur, (open ? 16 : 25) * (View.SaveGlass ? 3 : 1), hole);
         _shownVersion = _glass.Version;
         RawGlass = picture;
@@ -204,6 +214,7 @@ internal sealed class IslandScreen : IDisposable
     }
 
     private int _shownVersion = -1;
+    private readonly Queue<(DateTime At, SKRectI Hole)> _recentHoles = new();
 
     /// <summary>The glass picture as the reader made it (in memory), for the glass snapshot.</summary>
     public SKImage? RawGlass { get; private set; }

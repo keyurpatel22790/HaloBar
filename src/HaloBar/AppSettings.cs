@@ -193,6 +193,11 @@ internal sealed class AppSettings
     // Look, motion and accessibility.
     /// <summary>0–100: how frosty the see-through surfaces are (Acrylic, Frost, Candy, Glass lens).</summary>
     public int GlassBlur { get; set; } = 35;
+    /// <summary>
+    /// The Glass lens's look: "liquid" (after Apple's iOS 26 glass, adapting light or dark to
+    /// what's behind) or "classic" (a smoked glass that stays dark, with a thick curved rim).
+    /// </summary>
+    public string GlassStyle { get; set; } = "liquid";
     /// <summary>Percent: the open card's size (more room for the panels), apart from Size.</summary>
     public int OpenSize { get; set; } = 100;
     /// <summary>"fluid" (screen's full refresh), "balanced" (60 fps on battery) or "saver" (60 fps always).</summary>

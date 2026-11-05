@@ -87,6 +87,8 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Choice("Animation speed", null, ["normal", "quick", "relaxed"], () => s.AnimationSpeed, v => { s.AnimationSpeed = v; applyLayout(); }),
             Slider("Open size", "Room in the open card, apart from Size", 90, 120, 1, () => s.OpenSize, v => s.OpenSize = v, "%", applyLayout),
             Slider("Glass blur", "Glass, Frost and Candy: lower is clearer, higher is frostier", 0, 100, 1, () => s.GlassBlur, v => s.GlassBlur = v, "%"),
+            Named("Glass style", "Liquid follows Apple's iOS 26 glass and turns light over light backgrounds; Classic is smoked glass with a thick curved rim that stays dark",
+                [("liquid", "Liquid"), ("classic", "Classic")], () => s.GlassStyle, v => { s.GlassStyle = v; Prefs.Apply(s); }),
             Named("Motion", "Battery saver keeps animation under 60 frames a second and refreshes the glass less often; Balanced does that on battery",
                 [("fluid", "Fluid"), ("balanced", "Balanced"), ("saver", "Battery saver")], () => s.Motion, v => s.Motion = v),
             Toggle("Hidden until hover", "Nothing at the top until the pointer rests there", () => s.HiddenUntilHover, v => s.HiddenUntilHover = v),
