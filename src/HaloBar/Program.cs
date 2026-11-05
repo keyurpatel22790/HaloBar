@@ -1214,6 +1214,7 @@ internal sealed class IslandApp : IDisposable
             case "next": _hub.Media.Next(); break;
             case "web": ToggleWeb(null); break;
             case "controls": ScreenUnderCursor()?.View.OpenPanel("Controls"); break;
+            case "sound-output": ScreenUnderCursor()?.View.OpenPanel("Controls:output"); break;
             case "clipboard": ScreenUnderCursor()?.View.SearchClipboard(); break;
             case "profile":
                 var next = _hub.Profiles.Next();

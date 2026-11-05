@@ -14,9 +14,13 @@ internal sealed class ControlsPanel : Panel
     private string? _output, _input;
     private DateTime _devicesReadAt;
 
-    /// <summary>The main page, or the list of Wi-Fi networks or Bluetooth devices.</summary>
-    private enum Page { Main, Wifi, Bluetooth }
+    /// <summary>The main page, or a list: Wi-Fi networks, Bluetooth devices, sound outputs or inputs.</summary>
+    private enum Page { Main, Wifi, Bluetooth, Output, Input }
     private Page _page;
+    // The sound devices on the Output/Input page, read now and then (enumerating endpoints isn't free).
+    private (string Name, string Id)[] _devices = [];
+    private string? _defaultId;
+    private DateTime _devicesListAt;
     private Spring _scroll = new(0, 300, 1);
     private float _listHeight;
     private readonly TextField _password;
@@ -53,6 +57,8 @@ internal sealed class ControlsPanel : Panel
     {
         if (place.Equals("wifi", StringComparison.OrdinalIgnoreCase)) Show(Page.Wifi);
         else if (place.Equals("bluetooth", StringComparison.OrdinalIgnoreCase)) Show(Page.Bluetooth);
+        else if (place.Equals("output", StringComparison.OrdinalIgnoreCase)) Show(Page.Output);
+        else if (place.Equals("input", StringComparison.OrdinalIgnoreCase)) Show(Page.Input);
         else Show(Page.Main);
     }
 
@@ -63,11 +69,12 @@ internal sealed class ControlsPanel : Panel
         _scroll = new(0, 300, 1);
         if (page == Page.Wifi) Hub.Wifi.ScanIfStale();
         if (page == Page.Bluetooth) Hub.Bluetooth.ClearStatus();
+        if (page is Page.Output or Page.Input) { _devicesListAt = default; ReadDevices(page); }
     }
 
     public override IEnumerable<(string Label, Action Click)> Actions => _page switch
     {
-        Page.Wifi or Page.Bluetooth => [("Back", () => Show(Page.Main))],
+        Page.Wifi or Page.Bluetooth or Page.Output or Page.Input => [("Back", () => Show(Page.Main))],
         _ => [],
     };
 
@@ -95,6 +102,12 @@ internal sealed class ControlsPanel : Panel
                 return;
             case Page.Bluetooth:
                 DrawBluetooth(ui, body);
+                return;
+            case Page.Output:
+                DrawDevices(ui, body, DataFlow.Render);
+                return;
+            case Page.Input:
+                DrawDevices(ui, body, DataFlow.Capture);
                 return;
         }
 
@@ -149,16 +162,8 @@ internal sealed class ControlsPanel : Panel
         var wifiChip = ui.Chip(body.Left + 18, y, $"Wi-Fi · {Short(Hub.Wifi.ConnectedSsid ?? (controls.WifiOn == false ? "off" : "networks"), 14)} ›", () => Show(Page.Wifi), size: 11.5f);
         var connected = Hub.Bluetooth.Connected.Count;
         var btChip = ui.Chip(wifiChip.Right + 8, y, $"Bluetooth · {(controls.BluetoothOn == false ? "off" : connected == 0 ? "devices" : $"{connected} on")} ›", () => Show(Page.Bluetooth), size: 11.5f);
-        var chip = ui.Chip(btChip.Right + 8, y, $"Speaker · {Short(_output, 14)}", () =>
-        {
-            _output = ControlsService.CycleDefault(DataFlow.Render);
-            if (_output != null) Hub.ShowHud(new Hud(HudIcon.Volume, _output, Detail: "Output"));
-        }, size: 11.5f);
-        ui.Chip(chip.Right + 8, y, $"Mic · {Short(_input, 14)}", () =>
-        {
-            _input = ControlsService.CycleDefault(DataFlow.Capture);
-            if (_input != null) Hub.ShowHud(new Hud(HudIcon.Mic, _input, Detail: "Input"));
-        }, size: 11.5f);
+        var chip = ui.Chip(btChip.Right + 8, y, $"Speaker · {Short(_output, 14)} ›", () => Show(Page.Output), size: 11.5f);
+        ui.Chip(chip.Right + 8, y, $"Mic · {Short(_input, 14)} ›", () => Show(Page.Input), size: 11.5f);
 
         // Profiles: the first tap saves how things are now; later taps switch back to it.
         y = body.Top + 132;
@@ -370,6 +375,62 @@ internal sealed class ControlsPanel : Panel
     // ───────────────────────────── shared ─────────────────────────────
 
     /// <summary>A list page's top line: icon, name, on/off switch and what's going on.</summary>
+    // ───────────────────────────── sound output / input ─────────────────────────────
+
+    private void ReadDevices(Page page)
+    {
+        var flow = page == Page.Input ? DataFlow.Capture : DataFlow.Render;
+        _devices = ControlsService.Devices(flow);
+        _defaultId = ControlsService.DefaultId(flow);
+        _devicesListAt = DateTime.Now;
+    }
+
+    /// <summary>The list of speakers (Render) or microphones (Capture); click one to make it the default.</summary>
+    private void DrawDevices(Ui ui, SKRect body, DataFlow flow)
+    {
+        // Devices come and go (headphones plugged in, a Bluetooth speaker connecting): refresh now and then.
+        if (DateTime.Now - _devicesListAt > TimeSpan.FromSeconds(2)) ReadDevices(_page);
+
+        var render = flow == DataFlow.Render;
+        void Icon(SKCanvas c, float x, float cy, float s, SKColor col)
+        {
+            if (render) Icons.Speaker(c, x, cy, s, col, Hub.Volume.Volume, Hub.Volume.Muted);
+            else Icons.Mic(c, x, cy, s, col);
+        }
+        var x = body.Right - 18;
+        x = ui.Chip(x - Width(ui, "Sound settings"), body.Top + 14, "Sound settings", () => Open("ms-settings:sound"), size: 11.5f).Left - 8;
+        var count = _devices.Length;
+        Header(ui, body, Icon, render ? "Output" : "Input", null, () => { },
+            count == 0 ? (render ? "No speakers found" : "No microphones found") : count == 1 ? "1 device" : $"{count} devices", x);
+
+        var area = new SKRect(body.Left + 12, body.Top + 32, body.Right - 12, body.Bottom - 4);
+        if (count == 0)
+        {
+            ui.Empty(area, render ? "No output devices" : "No input devices",
+                render ? "Plug in or connect a speaker or headphones" : "Plug in or connect a microphone");
+            return;
+        }
+        List(ui, area, count, (i, row, y) =>
+        {
+            var (name, id) = _devices[i];
+            var isDefault = id == _defaultId;
+            var hover = ui.Hovering(row);
+            if (isDefault) ui.Fill(row, 9, Theme.Accent.WithAlpha(40));
+            else if (hover) ui.Fill(row, 9, Theme.Overlay(16));
+            Icon(ui.Canvas, row.Left + 20, y - 3, 15, isDefault ? Theme.Accent : Theme.Text);
+            ui.Text(Short(name, 40), row.Left + 38, y, row.Width - 170, 12.5f, isDefault ? Theme.Weight.SemiBold : Theme.Weight.Regular);
+            var note = isDefault ? "In use" : hover ? "Use this" : "";
+            if (note.Length > 0) ui.Text(note, row.Right - 12, y, 120, 11, Theme.Weight.Regular, isDefault ? Theme.Accent : Theme.Text, SKTextAlign.Right);
+            if (!isDefault) ui.Hit(row, () =>
+            {
+                ControlsService.SetDefaultIfPresent(flow, id);
+                _defaultId = id;
+                if (render) _output = name; else _input = name;
+                Hub.ShowHud(new Hud(render ? HudIcon.Volume : HudIcon.Mic, Short(name, 30), Detail: render ? "Output" : "Input"));
+            });
+        });
+    }
+
     private void Header(Ui ui, SKRect body, Action<SKCanvas, float, float, float, SKColor> icon, string name, bool? on, Action toggle, string status, float right)
     {
         var y = body.Top + 14;

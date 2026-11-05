@@ -108,6 +108,7 @@ internal sealed class HotkeyService(AppSettings settings, IntPtr hwnd, Action? s
         new("obs", "OBS: start or stop recording", "Ctrl+Alt+R"),
         new("web", "Show or hide the web drawer", "Ctrl+Alt+W"),
         new("controls", "Open Controls (Wi-Fi, Bluetooth, sound)", "Ctrl+Alt+K"),
+        new("sound-output", "Switch sound output device", ""),
         new("clipboard", "Search the clipboard history", "Ctrl+Alt+B"),
         new("profile", "Switch to the next profile", ""),
         new("dnd", "Do not disturb on or off", ""),
