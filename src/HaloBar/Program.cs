@@ -1591,6 +1591,8 @@ internal sealed class IslandApp : IDisposable
                 ownWindows.Clear();
                 foreach (var s in _screens) ownWindows.Add(s.Window.Handle);
                 var front = FullscreenWatcher.Inspect(ownWindows);
+                // What covers each monitor, so every screen slims over its own maximised window.
+                var cover = FullscreenWatcher.CoverByMonitor(ownWindows);
                 _frontApp = front.Process ?? "";
                 _hub.FrontApp = _frontApp;
                 WarnAboutNightLight();
@@ -1600,12 +1602,18 @@ internal sealed class IslandApp : IDisposable
                 {
                     var here = s.Monitor.Handle == front.Monitor;
                     var game = here && front.Game && _settings.GameStrip;
-                    var fullscreenHere = here && front.Fullscreen && _settings.HideInFullscreen && !game;
+                    // This screen's own top window (maximised or full screen), so each display slims over
+                    // whatever covers it, not only the one the active window happens to be on.
+                    var mon = cover.GetValueOrDefault(s.Monitor.Handle);
+                    var fullscreenHere = mon.Fullscreen && !game;
+                    var covered = (mon.Maximized || fullscreenHere) && !(here && rule == "normal");
                     var everywhere = _settings.GameStripEverywhere && !game;
                     s.View.GameStrip = (game || everywhere) && _snapshot == null;
                     s.View.StripOpens = everywhere;
-                    s.View.Slim = here && (rule == "slim" || (_settings.SlimWhenCovered && front.Maximized && rule != "normal"));
-                    var hidden = (_userHidden || fullscreenHere || (here && rule == "hide")) && _snapshot == null;
+                    // Slim to a thin line over a maximised or full-screen window (so it never covers tabs);
+                    // only truly hide in full screen when the user asked for hide and not slim.
+                    s.View.Slim = (here && rule == "slim") || (_settings.SlimWhenCovered && covered);
+                    var hidden = (_userHidden || (fullscreenHere && _settings.HideInFullscreen && !_settings.SlimWhenCovered) || (here && rule == "hide")) && _snapshot == null;
                     if (hidden != s.View.Hidden && !_userHidden) Log.Write($"Full screen on {s.Monitor.Key}: {(hidden ? "hiding" : "showing")}");
                     s.View.Hidden = hidden;
                 }

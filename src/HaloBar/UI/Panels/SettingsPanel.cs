@@ -92,7 +92,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
             Named("Motion", "Battery saver keeps animation under 60 frames a second and refreshes the glass less often; Balanced does that on battery",
                 [("fluid", "Fluid"), ("balanced", "Balanced"), ("saver", "Battery saver")], () => s.Motion, v => s.Motion = v),
             Toggle("Hidden until hover", "Nothing at the top until the pointer rests there", () => s.HiddenUntilHover, v => s.HiddenUntilHover = v),
-            Toggle("Slim over maximised windows", "A thin line so it never covers browser tabs", () => s.SlimWhenCovered, v => s.SlimWhenCovered = v),
+            Toggle("Slim over maximised windows", "A thin line over maximised or full-screen windows on each screen, so it never covers your tabs", () => s.SlimWhenCovered, v => s.SlimWhenCovered = v),
             Toggle("Weather on the island", "Rain, snow, fog, stars and sunset light from the live weather (off while saving battery)", () => s.WeatherEffects, v => s.WeatherEffects = v),
         ]);
         yield return ("Surface and colour", [
@@ -163,7 +163,7 @@ internal sealed class SettingsPanel(Hub hub, Action applyLayout) : Panel(hub)
         ]);
         yield return ("App rules", [.. AppRuleRows()]);
         yield return ("Island", [
-            Toggle("Hide when something is full screen", null, () => s.HideInFullscreen, v => s.HideInFullscreen = v),
+            Toggle("Hide when something is full screen", "Ignored while “Slim over maximised windows” is on, which shows the thin line instead", () => s.HideInFullscreen, v => s.HideInFullscreen = v),
             Toggle("Show in screenshots and sharing", "Screenshots, screen sharing and recordings include the island. Off, Glass is sharpest: it sees exactly what's behind",
                 () => s.ShowInSharing, v => s.ShowInSharing = v),
             Toggle("Every monitor", "One island per screen", () => s.AllMonitors, v => { s.AllMonitors = v; applyLayout(); }),
