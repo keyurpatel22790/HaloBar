@@ -68,6 +68,6 @@ internal static class TileCatalogue
         new ScreenTimeTile(hub), new DiskTile(hub), new NetworkTile(hub), new SystemTile(hub),
         new NoteTile(hub), new CountdownTile(hub), new CounterTile(hub), new StopwatchTile(hub),
         new CalculatorTile(hub), new ConverterTile(hub), new TranslateTile(hub), new DictionaryTile(hub),
-        new CurrencyTile(hub), new TickerTile(hub), new GitTile(hub), new DockerTile(hub), new PhotosTile(hub),
+        new CurrencyTile(hub), new PasswordTile(hub), new EmojiTile(hub), new TickerTile(hub), new GitTile(hub), new DockerTile(hub), new PhotosTile(hub),
     ];
 }
