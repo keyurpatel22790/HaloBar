@@ -65,8 +65,22 @@ internal sealed class RemindersPanel : Panel
         };
         ui.Chip(split - 86, body.Top + 15, repeatLabel, () => _repeat = (ReminderRepeat)(((int)_repeat + 1) % 4), _repeat != ReminderRepeat.None, 11.5f);
 
+        // Quick timers: one tap starts a countdown (it shows on the pill and chimes when done).
+        var tx = body.Left + 18;
+        ui.Text("Timer", tx, body.Top + 44, 44, 11, Theme.Weight.SemiBold, Theme.Dim);
+        tx += ui.Measure("Timer", 11, Theme.Weight.SemiBold) + 10;
+        foreach (var (label, mins) in new[] { ("5m", 5), ("10m", 10), ("15m", 15), ("25m", 25), ("45m", 45) })
+        {
+            var m = mins;
+            tx = ui.Chip(tx, body.Top + 40, label, () =>
+            {
+                var r = Hub.Reminders.AddIn(TimeSpan.FromMinutes(m), $"{m}-minute timer");
+                Hub.ShowHud(new Hud(HudIcon.Timer, r.Text, Detail: When(r.Due)));
+            }, size: 11).Right + 6;
+        }
+
         var list = Hub.Reminders.Reminders;
-        var area = new SKRect(body.Left + 12, body.Top + 34, split - 8, body.Bottom - 6);
+        var area = new SKRect(body.Left + 12, body.Top + 58, split - 8, body.Bottom - 6);
         if (list.Count == 0)
             ui.Text("No reminders", area.MidX, area.MidY + 4, area.Width, 12, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Center);
         ui.Canvas.Save();

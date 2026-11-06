@@ -48,6 +48,23 @@ internal sealed partial class ReminderService(AppSettings settings)
         settings.Save();
     }
 
+    /// <summary>A quick countdown timer: a reminder due <paramref name="span"/> from now.</summary>
+    public Reminder AddIn(TimeSpan span, string label)
+    {
+        var r = new Reminder { Text = label, Due = DateTime.Now + span };
+        settings.Reminders.Add(r);
+        settings.Reminders.Sort((a, b) => a.Due.CompareTo(b.Due));
+        settings.Save();
+        return r;
+    }
+
+    /// <summary>The reminder due soonest within <paramref name="window"/> (for the pill countdown), or null.</summary>
+    public Reminder? Soonest(TimeSpan window)
+    {
+        var now = DateTime.Now;
+        return settings.Reminders.Where(r => r.Due > now && r.Due - now <= window).MinBy(r => r.Due);
+    }
+
     public void AddTodo(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
