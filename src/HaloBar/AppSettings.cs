@@ -219,8 +219,19 @@ internal sealed class AppSettings
     public bool LongerNotices { get; set; }
     /// <summary>"auto" (the surface's own; on Glass lens light or dark by what's behind), "white", "black", or "#RRGGBB".</summary>
     public string TextColour { get; set; } = "auto";
-    /// <summary>A soft shadow under text: "auto" on see-through surfaces, "on" or "off".</summary>
-    public string TextShadow { get; set; } = "auto";
+    /// <summary>A soft shadow under text: "off" (default), "auto" on see-through surfaces, or "on".</summary>
+    public string TextShadow { get; set; } = "off";
+
+    // Password generator tile.
+    public int PwLength { get; set; } = 16;
+    public bool PwUpper { get; set; } = true;
+    public bool PwDigits { get; set; } = true;
+    public bool PwSymbols { get; set; } = true;
+    /// <summary>Leave out look-alike characters (l, 1, I, O, 0, o) so a password is easy to read and type.</summary>
+    public bool PwAvoidAmbiguous { get; set; }
+
+    // Emoji picker tile: the most recently used emoji, newest first (space-separated).
+    public string EmojiRecent { get; set; } = "";
 
     // The island.
     /// <summary>The closed island shows the song's title beside the cover while music plays.</summary>
