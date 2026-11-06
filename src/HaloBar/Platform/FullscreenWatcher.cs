@@ -46,11 +46,11 @@ internal static class FullscreenWatcher
         var maximized = false;
         if (GetWindowRect(fg, out var r) && GetMonitorInfoW(monitor, ref info))
         {
-            var m = info.rcMonitor;
-            // Borderless "fullscreen" (browsers, video players) covers the monitor exactly.
-            if (r.Left == m.Left && r.Top == m.Top && r.Right == m.Right && r.Bottom == m.Bottom) fullscreen = true;
+            // Borderless "fullscreen" covers the whole monitor (down past the taskbar); allow a few
+            // pixels of slack so fractional display scaling (e.g. 125%) doesn't miss an exact match.
+            if (CoversMonitor(r, info.rcMonitor)) fullscreen = true;
             // Maximised windows overhang the work area by their border and reach its top.
-            maximized = !fullscreen && r.Top <= info.rcWork.Top && r.Left <= info.rcWork.Left && r.Right >= info.rcWork.Right;
+            maximized = !fullscreen && r.Top <= info.rcWork.Top + Tol && r.Left <= info.rcWork.Left + Tol && r.Right >= info.rcWork.Right - Tol;
         }
 
         var game = fullscreen && (d3d || GameFolders.Any(f => path.Contains(f, StringComparison.OrdinalIgnoreCase))
@@ -58,8 +58,8 @@ internal static class FullscreenWatcher
         return new ForegroundInfo(monitor, process, fullscreen, game, maximized);
     }
 
-    /// <summary>Whether the top window on a monitor covers it: maximised (fills the work area) or full screen (the whole monitor).</summary>
-    internal readonly record struct Cover(bool Fullscreen, bool Maximized);
+    /// <summary>Whether the top window on a monitor covers it: maximised (fills the work area) or full screen (the whole monitor). <paramref name="Who"/> is its class name, for the log.</summary>
+    internal readonly record struct Cover(bool Fullscreen, bool Maximized, string Who = "");
 
     /// <summary>
     /// For each monitor, the state of its topmost ordinary window, so every screen's island can slim
@@ -67,6 +67,8 @@ internal static class FullscreenWatcher
     /// </summary>
     public static Dictionary<IntPtr, Cover> CoverByMonitor(ICollection<IntPtr> ownWindows)
     {
+        const long WS_EX_APPWINDOW = 0x40000;
+        var self = (uint)Environment.ProcessId;
         var result = new Dictionary<IntPtr, Cover>();
         var shell = GetShellWindow();
         var desktop = GetDesktopWindow();
@@ -77,6 +79,15 @@ internal static class FullscreenWatcher
             if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return true;
             // Cloaked windows (another virtual desktop, suspended UWP) are not really on screen.
             if (DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out var cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
+            // Skip every one of HaloBar's own windows — the island, desktop widgets, the dim overlay,
+            // the chat overlay, a snapshot or phone-share window — so one of them floating on top of a
+            // full-screen app never makes its screen flicker back to "not covered".
+            GetWindowThreadProcessId(hwnd, out var pid);
+            if (pid == self) return true;
+            // Tool windows (toasts, floating palettes) sit above things without really covering a
+            // screen, so they shouldn't count as the top window either.
+            var ex = (long)GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if ((ex & WS_EX_TOOLWINDOW) != 0 && (ex & WS_EX_APPWINDOW) == 0) return true;
             var len = GetClassNameW(hwnd, name, name.Length);
             var cls = new string(name, 0, len);
             if (cls is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return true;
@@ -84,14 +95,26 @@ internal static class FullscreenWatcher
             if (result.ContainsKey(monitor)) return true; // the topmost window for this monitor wins (EnumWindows is front-to-back)
             var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (!GetWindowRect(hwnd, out var r) || !GetMonitorInfoW(monitor, ref info)) return true;
-            var m = info.rcMonitor;
-            var fullscreen = r.Left == m.Left && r.Top == m.Top && r.Right == m.Right && r.Bottom == m.Bottom;
-            var maximized = !fullscreen && r.Top <= info.rcWork.Top && r.Left <= info.rcWork.Left && r.Right >= info.rcWork.Right;
-            result[monitor] = new Cover(fullscreen, maximized);
+            // Full screen covers the whole monitor; maximised fills only the work area (above the
+            // taskbar) and overhangs its edges by the window border. Both use a small tolerance so
+            // fractional display scaling doesn't throw the comparison off by a pixel.
+            var fullscreen = CoversMonitor(r, info.rcMonitor);
+            var maximized = !fullscreen && r.Top <= info.rcWork.Top + Tol && r.Left <= info.rcWork.Left + Tol && r.Right >= info.rcWork.Right - Tol;
+            result[monitor] = new Cover(fullscreen, maximized, cls);
             return true;
         }, IntPtr.Zero);
         return result;
     }
+
+    // Slack for rect comparisons, so fractional display scaling (125%, 150%) doesn't throw off an
+    // otherwise-matching full-screen window by a pixel. Kept well under any taskbar's height, so a
+    // merely maximised window (which stops at the work area) is never mistaken for full screen.
+    private const int Tol = 4;
+
+    /// <summary>Whether <paramref name="r"/> covers the whole <paramref name="monitor"/>, down past the taskbar.</summary>
+    private static bool CoversMonitor(RECT r, RECT monitor) =>
+        r.Left <= monitor.Left + Tol && r.Top <= monitor.Top + Tol &&
+        r.Right >= monitor.Right - Tol && r.Bottom >= monitor.Bottom - Tol;
 
     private const int DWMWA_CLOAKED = 14;
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr param);

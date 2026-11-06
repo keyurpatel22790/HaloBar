@@ -432,6 +432,7 @@ internal sealed class IslandView
             _ => media != null ? (Settings.TitleInPill || Settings.LyricsInPill && Settings.ShowLyrics ? 300f : 120f, 34f, 17f) : (168f, 34f, 17f),
         };
         if (_mode == IslandMode.Collapsed && PrivacyDots > 0 && !SlimNow && !GameStrip) w += 6 + PrivacyDots * 9;
+        if (_mode == IslandMode.Collapsed && _hub.Quiet() && !SlimNow && !GameStrip) w += 18;
         _width.Target = w;
         _height.Target = h;
         _radius.Target = SlimNow ? r : r * Math.Clamp(Settings.CornerRoundness / 100f, 0, 1);
@@ -770,6 +771,13 @@ internal sealed class IslandView
             if (_hub.Privacy.MicrophoneInUse) { _ui.Circle(x, r.MidY, 3.5f, MicOrange); x -= 9; }
             if (_hub.Privacy.CameraInUse) _ui.Circle(x, r.MidY, 3.5f, CameraGreen);
             r = new SKRect(r.Left, r.Top, r.Right - 6 - dots * 9, r.Bottom);
+        }
+
+        // A small moon at the right end while Do Not Disturb (Quiet) is on, so you can tell at a glance.
+        if (_hub.Quiet())
+        {
+            Icons.Moon(_ui.Canvas, r.Right - 11, r.MidY, 12, _theme.Dim);
+            r = new SKRect(r.Left, r.Top, r.Right - 18, r.Bottom);
         }
 
         if (ActivitySource() is { } activity)
