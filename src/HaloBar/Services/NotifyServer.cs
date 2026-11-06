@@ -31,6 +31,8 @@ internal sealed class NotifyServer : IDisposable
     public event Action<string>? PanelRequested;
     /// <summary>/settings?page=… opens the Settings window (on that page).</summary>
     public event Action<string?>? SettingsRequested;
+    /// <summary>Open the mark-up window on an image file.</summary>
+    public event Action<string>? MarkupRequested;
     /// <summary>(agent id, the JSON its hook received) from Claude Code, Codex or Gemini CLI.</summary>
     public event Action<string, string>? HookEvent;
     /// <summary>(name, state, text, project) from any other agent or script.</summary>
@@ -153,6 +155,18 @@ internal sealed class NotifyServer : IDisposable
             if (path == "/settings")
             {
                 SettingsRequested?.Invoke(HttpUtility.ParseQueryString(uri.Query)["page"]);
+                await ReplyAsync(stream, 200, "ok");
+                return;
+            }
+            if (path == "/markup")
+            {
+                var file = HttpUtility.ParseQueryString(uri.Query)["file"];
+                if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
+                {
+                    await ReplyAsync(stream, 400, "use /markup?file=<path to an image on this PC>");
+                    return;
+                }
+                MarkupRequested?.Invoke(file);
                 await ReplyAsync(stream, 200, "ok");
                 return;
             }

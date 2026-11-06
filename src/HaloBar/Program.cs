@@ -549,6 +549,7 @@ internal sealed class IslandApp : IDisposable
         foreach (var w in _widgets) w.ReplaceSurface(_gfx);
         _chatOverlay?.ReplaceSurface(_gfx);
         _settingsWindow?.ReplaceSurface(_gfx);
+        _annotate?.ReplaceSurface(_gfx);
         _dirty = true;
     }
 
@@ -557,12 +558,20 @@ internal sealed class IslandApp : IDisposable
     private readonly List<DesktopWidget> _widgets = [];
     private ChatOverlay? _chatOverlay;
     private SettingsWindow? _settingsWindow;
+    private AnnotateWindow? _annotate;
 
     /// <summary>The Settings window, made the first time it's asked for and kept (closing hides it).</summary>
     private void OpenSettingsWindow(string? page)
     {
         _settingsWindow ??= new SettingsWindow(_hub, _gfx, () => _layoutDirty = true);
         _settingsWindow.Open(page);
+    }
+
+    /// <summary>HaloBar's own mark-up window for a screenshot, made on first use and kept (closing hides it).</summary>
+    private void OpenAnnotate(string file)
+    {
+        _annotate ??= new AnnotateWindow(_hub, _gfx);
+        _annotate.Open(file);
     }
     private WinEventProc? _foregroundHook; // kept alive: Windows calls it
     private IntPtr _foregroundHookHandle;
@@ -862,6 +871,7 @@ internal sealed class IslandApp : IDisposable
             _theme.Choose(surface is null ? null : Looks.Surface(surface), accent is null ? null : Looks.Accent(accent), album));
         _server.PanelRequested += name => Post(() => ScreenUnderCursor()?.View.OpenPanel(name));
         _server.SettingsRequested += page => Post(() => OpenSettingsWindow(page));
+        _server.MarkupRequested += file => Post(() => OpenAnnotate(file));
         _server.SnapshotRequested += (file, panel) => Post(() =>
         {
             // "glass:1" saves what the second screen's glass lens currently sees behind its island.
@@ -883,6 +893,20 @@ internal sealed class IslandApp : IDisposable
                     window.CaptureNextFrame();
                     window.Render(window.LastFrame + 0.016, 0.016);
                     if (window.Picture is { } picture)
+                    {
+                        using var data = picture.Encode(SKEncodedImageFormat.Png, 100);
+                        File.WriteAllBytes(file, data.ToArray());
+                    }
+                }
+                return;
+            }
+            if (panel?.Equals("markup", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (_annotate is { } mk)
+                {
+                    mk.CaptureNextFrame();
+                    mk.Render(mk.LastFrame + 0.016, 0.016);
+                    if (mk.Picture is { } picture)
                     {
                         using var data = picture.Encode(SKEncodedImageFormat.Png, 100);
                         File.WriteAllBytes(file, data.ToArray());
@@ -1093,6 +1117,9 @@ internal sealed class IslandApp : IDisposable
             var label = t.Paused ? "Paused" : t.Phase == TimerPhase.Break ? "Break" : "Focus";
             return new Activity(50, HudIcon.Timer, label, t.Phase == TimerPhase.Break ? Green : _theme.Accent, t.Progress, Ui.Clock(t.Remaining));
         }
+        // A timer or reminder counting down in its last hour.
+        if (_hub.Reminders.Soonest(TimeSpan.FromMinutes(60)) is { } soon)
+            return new Activity(48, HudIcon.Alarm, soon.Text, _theme.Accent, Right: Ui.Clock(soon.Due - DateTime.Now));
         if (_settings.AgentsEnabled && _agents.Sessions.FirstOrDefault(s => s.State == AgentState.Working) is { } working)
             return new Activity(45, HudIcon.Agent, $"{working.Agent} · {working.Doing}", _theme.Accent, Right: Ui.Clock(DateTime.Now - working.Since));
         if (_settings.ShowDownloadActivity && _hub.Downloads.Current is { } d)
@@ -1192,9 +1219,9 @@ internal sealed class IslandApp : IDisposable
             var file = Path.Combine(folder, $"Screenshot {DateTime.Now:yyyy-MM-dd HH-mm-ss}.png");
             File.WriteAllBytes(file, png);
             if (_settings.CapturesToShelf) _hub.Shelf.Add([file]);
-            // Clicking it opens the picture in Paint to mark it up (arrows, boxes, text, highlight).
+            // Clicking it opens HaloBar's own mark-up window (arrows, boxes, text, highlight, crop).
             ShowNotice(new Notice("Screenshot saved", "Copied · on the shelf", "Click to mark it up", null, DateTime.Now,
-                Click: () => Open("mspaint.exe", $"\"{file}\"")));
+                Click: () => Post(() => OpenAnnotate(file))));
         }
         catch (IOException ex)
         {
@@ -1663,7 +1690,9 @@ internal sealed class IslandApp : IDisposable
                     s.View.StripOpens = everywhere;
                     // Slim to a thin line over a maximised or full-screen window (so it never covers tabs);
                     // only truly hide in full screen when the user asked for hide and not slim.
-                    s.View.Slim = (here && rule == "slim") || (_settings.SlimWhenCovered && covered);
+                    var slim = (here && rule == "slim") || (_settings.SlimWhenCovered && covered);
+                    if (slim != s.View.Slim) Log.Write($"Cover on {s.Monitor.Key}: {(slim ? "slim" : "full")} (fs={mon.Fullscreen} max={mon.Maximized} game={game} top={mon.Who})");
+                    s.View.Slim = slim;
                     var hidden = (_userHidden || (fullscreenHere && _settings.HideInFullscreen && !_settings.SlimWhenCovered) || (here && rule == "hide")) && _snapshot == null;
                     if (hidden != s.View.Hidden && !_userHidden) Log.Write($"Full screen on {s.Monitor.Key}: {(hidden ? "hiding" : "showing")}");
                     s.View.Hidden = hidden;
@@ -1730,6 +1759,11 @@ internal sealed class IslandApp : IDisposable
             if (_settingsWindow is { } settingsWindow && settingsWindow.Due(now))
             {
                 lost |= !settingsWindow.Render(now, Math.Min(0.05, now - settingsWindow.LastFrame));
+                rendered = true;
+            }
+            if (_annotate is { } annotate && annotate.Due(now))
+            {
+                lost |= !annotate.Render(now, Math.Min(0.05, now - annotate.LastFrame));
                 rendered = true;
             }
             if (_chatOverlay is { } chat && chat.Due(now) && !animating)
@@ -1825,6 +1859,7 @@ internal sealed class IslandApp : IDisposable
         foreach (var w in _widgets) w.Dispose();
         _chatOverlay?.Dispose();
         _settingsWindow?.Dispose();
+        _annotate?.Dispose();
         if (_foregroundHookHandle != IntPtr.Zero) UnhookWinEvent(_foregroundHookHandle);
         RemoveClipboardFormatListener(_host.Handle);
         _tray.Dispose();
