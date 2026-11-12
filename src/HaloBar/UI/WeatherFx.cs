@@ -42,7 +42,7 @@ internal static class WeatherFx
     {
         if (w == null || r.Height < 16) return;
         var t = (float)(now.TimeOfDay.TotalSeconds % 3600);
-        SunTint(canvas, r, w, now);
+        SunTint(canvas, r, w, now, lightSurface);
         // On a light surface the particles are dark, otherwise light; always faint.
         var ink = lightSurface ? new SKColor(40, 50, 70) : new SKColor(220, 232, 255);
         switch (KindOf(w))
@@ -122,16 +122,39 @@ internal static class WeatherFx
         }
     }
 
-    /// <summary>A warm wash from the bottom within 40 minutes of sunrise or sunset.</summary>
-    private static void SunTint(SKCanvas canvas, SKRect r, WeatherSnapshot w, DateTime now)
+    /// <summary>
+    /// Warm light near sunrise or sunset: a soft glow rising from the horizon edge, <em>added</em>
+    /// over what's behind (like real light, with Plus) rather than painted on top. So dark evening
+    /// glass warms and glows instead of smearing to a flat brown, and a bright surface only takes on
+    /// a little warmth. Sunset leans amber into rose; sunrise a gentler gold. It eases in and out
+    /// over about three quarters of an hour, so it never pops on or off.
+    /// </summary>
+    private static void SunTint(SKCanvas canvas, SKRect r, WeatherSnapshot w, DateTime now, bool lightSurface)
     {
-        var near = new[] { w.Sunrise, w.Sunset }.Where(d => d != null).Select(d => Math.Abs((now - d!.Value).TotalMinutes)).DefaultIfEmpty(999).Min();
-        if (near > 40) return;
-        var a = (byte)(70 * (1 - near / 40));
+        double best = 999;
+        var rising = false;
+        foreach (var (d, isRise) in new[] { (w.Sunrise, true), (w.Sunset, false) })
+            if (d is { } v)
+            {
+                var m = Math.Abs((now - v).TotalMinutes);
+                if (m < best) (best, rising) = (m, isRise);
+            }
+        if (best > 45) return;
+        var k = (float)(1 - best / 45);
+        k *= k * (3 - 2 * k);          // smoothstep: eases on and off, no hard edge
+        if (lightSurface) k *= 0.45f;  // on bright glass the glow is barely needed and must not wash text
+
+        byte A(float f) => (byte)Math.Clamp(f * 255f + 0.5f, 0, 255);
+        var core = rising ? new SKColor(255, 196, 128) : new SKColor(255, 150, 82);   // bright at the horizon
+        var sky = rising ? new SKColor(255, 178, 150) : new SKColor(238, 110, 128);   // the lit air above it
         using var paint = new SKPaint
         {
-            Shader = SKShader.CreateLinearGradient(new SKPoint(r.MidX, r.Bottom), new SKPoint(r.MidX, r.Top),
-                [new SKColor(255, 140, 60, a), new SKColor(255, 90, 120, (byte)(a / 3)), SKColors.Transparent], [0, 0.55f, 1], SKShaderTileMode.Clamp),
+            IsAntialias = true,
+            BlendMode = SKBlendMode.Plus, // light, not paint: it adds, so it glows and never muddies
+            Shader = SKShader.CreateLinearGradient(
+                new SKPoint(r.MidX, r.Bottom + r.Height * 0.12f), new SKPoint(r.MidX, r.Top - r.Height * 0.1f),
+                [core.WithAlpha(A(0.24f * k)), sky.WithAlpha(A(0.10f * k)), SKColors.Transparent],
+                [0f, 0.5f, 1f], SKShaderTileMode.Clamp),
         };
         canvas.DrawRect(r, paint);
     }

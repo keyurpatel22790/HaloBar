@@ -1,4 +1,6 @@
 using HaloBar.Rendering;
+using HaloBar.Services;
+using HaloBar.UI;
 using SkiaSharp;
 using Xunit;
 
@@ -146,6 +148,53 @@ public class GlassRenderTests
         var shrink = GlassBackdrop.ShrinkFor(35);
         var middle = pixels.GetPixel(410 / shrink, 25 / shrink);
         Assert.True(middle.Red > 200 && middle.Green > 100 && middle.Blue < 110, $"filled with {middle}");
+    }
+
+    [Fact]
+    public void SunsetLightGlowsWithoutMuddying()
+    {
+        // The evening weather glow (WeatherFx.SunTint) over dark glass: it must warm and glow, not
+        // smear a flat brown. Saved for a look when HALOBAR_GLASS_OUT is set.
+        var output = Environment.GetEnvironmentVariable("HALOBAR_GLASS_OUT");
+        var now = new DateTime(2026, 11, 7, 18, 0, 0);
+        var sunset = new WeatherSnapshot("Ahmedabad", 29, 0, IsDay: true, 34, 23, Fahrenheit: false, now) { Sunset = now };
+        foreach (var (name, background) in new (string, Func<SKImage>)[] { ("dark", Dark), ("wallpaper", Wallpaper) })
+        foreach (var open in new[] { false, true })
+        {
+            using var screen = background();
+            var rect = open ? new SKRect(60, 6, W - 60, H - 24) : new SKRect(W / 2f - 170, 6, W / 2f + 170, 42);
+            var radius = open ? 32f : rect.Height / 2;
+            var area = SKRectI.Intersect(SKRectI.Round(SKRect.Inflate(rect, 24, 20)), new SKRectI(0, 0, W, H));
+            using var full = SKBitmap.FromImage(screen);
+            using var part = new SKBitmap();
+            Assert.True(full.ExtractSubset(part, area));
+            using var glass = GlassBackdrop.ShrinkAndBlur(part.GetPixels(), part.Width, part.Height, part.RowBytes, 45);
+            var tone = GlassLight.Tone(glass);
+            var lightSurface = name == "wallpaper";
+            var dark = lightSurface ? 1f : 0f;
+
+            using var surface = SKSurface.Create(new SKImageInfo(W, H));
+            var c = surface.Canvas;
+            c.DrawImage(screen, 0, 0);
+            using var shape = new SKPath();
+            shape.AddRoundRect(rect, radius, radius);
+            LiquidGlass.Draw(c, shape, rect, radius, glass, area, open ? 1 : 0, dark, tone, 0.45f, new SKColor(0x10, 0x10, 0x14, 200));
+            // The weather is drawn clipped to the island, under its content, exactly as IslandView does.
+            c.Save();
+            c.ClipPath(shape, antialias: true);
+            WeatherFx.Draw(c, rect, sunset, now, lightSurface);
+            c.Restore();
+            var ink = lightSurface ? new SKColor(0x14, 0x14, 0x18) : new SKColor(0xF7, 0xF7, 0xFA);
+            using var bold = new SKFont(SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold), 13);
+            using var paint = new SKPaint { Color = ink, IsAntialias = true };
+            c.DrawText(open ? "Saturday 7 November · sunset" : "6:00 PM · sunset", rect.Left + 24, open ? rect.Top + 40 : rect.MidY + 5, bold, paint);
+
+            using var shot = surface.Snapshot();
+            if (output == null) continue;
+            Directory.CreateDirectory(output);
+            using var data = shot.Encode(SKEncodedImageFormat.Png, 100);
+            File.WriteAllBytes(Path.Combine(output, $"sunset-{name}-{(open ? "open" : "pill")}.png"), data.ToArray());
+        }
     }
 
     private static SKImage Render(SKImage screen, int blur, bool open)
