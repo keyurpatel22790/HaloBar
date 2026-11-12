@@ -139,9 +139,9 @@ internal static class LiquidGlass
             c = mix(c, tint.rgb, half(clamp(tint.a + 0.12 * curve, 0.0, 0.95)));
             float rim = smoothstep(-2.2, -0.2, d) * (1.0 - smoothstep(-0.2, 0.6, d));
             float facing = 0.35 + 0.65 * clamp(dot(g, float2(-0.55, -0.85)), 0.0, 1.0);
-            c += half3(rim * facing * 0.38 * rimk);
+            c += half3(rim * facing * 0.55 * rimk);
             float glow = clamp(1.0 - (p.y - top) / 14.0, 0.0, 1.0);
-            c += half3(0.05 * glow * glow * rimk);
+            c += half3(0.09 * glow * glow * rimk);
             return half4(c, 1.0);
         }";
 
@@ -264,10 +264,12 @@ internal static class LiquidGlass
     {
         var dim = DimColour(tint);
         var under = IsClear(frost) ? SKColors.Black : dim;
-        var lightAlpha = LightHaze(tone, Ink(under), IsClear(frost) ? 0.18 : LightFloor(frost));
+        // Clear glass keeps no haze floor: it dims only as much as the text behind actually forces
+        // (the LightHaze/DarkHaze "need"), so over a readable backdrop it stays truly see-through.
+        var lightAlpha = LightHaze(tone, Ink(under), IsClear(frost) ? 0.0 : LightFloor(frost));
         var forLight = under.WithAlpha((byte)Math.Round(255 * lightAlpha));
         if (darkText <= 0.001f) return forLight;
-        var forDark = SKColors.White.WithAlpha((byte)Math.Round(255 * DarkHaze(tone, DarkFloor(frost))));
+        var forDark = SKColors.White.WithAlpha((byte)Math.Round(255 * DarkHaze(tone, IsClear(frost) ? 0.0 : DarkFloor(frost))));
         return Theme.Glide(forLight, forDark, darkText);
     }
 
@@ -357,6 +359,31 @@ internal static class LiquidGlass
                 using var rim = new SKPaint { Shader = lens, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 52 };
                 canvas.DrawPath(shape, rim);
             }
+
+            // A soft sheen from the top edge and a faint bright inner edge: the pane reads as a lit
+            // piece of glass even over a dark or flat background, where refraction alone shows little.
+            using (var sheen = new SKPaint
+                   {
+                       IsAntialias = true,
+                       Shader = SKShader.CreateLinearGradient(
+                           new SKPoint(rect.MidX, rect.Top), new SKPoint(rect.MidX, rect.Top + rect.Height * 0.45f),
+                           [SKColors.White.WithAlpha((byte)(20 + 20 * bright)), SKColors.White.WithAlpha(0)],
+                           SKShaderTileMode.Clamp),
+                   })
+                canvas.DrawRect(rect, sheen);
+            using (var edge = new SKPaint
+                   {
+                       IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.1f,
+                       Shader = SKShader.CreateLinearGradient(
+                           new SKPoint(rect.MidX, rect.Top), new SKPoint(rect.MidX, rect.Top + rect.Height * 0.6f),
+                           [SKColors.White.WithAlpha((byte)(60 + 30 * bright)), SKColors.White.WithAlpha(12)],
+                           SKShaderTileMode.Clamp),
+                   })
+            {
+                var inner = SKRect.Inflate(rect, -0.8f, -0.8f);
+                var rr = Math.Max(0, radius - 0.8f);
+                canvas.DrawRoundRect(inner, rr, rr, edge);
+            }
         }
         canvas.Restore();
     }
@@ -373,7 +400,9 @@ internal static class LiquidGlass
     {
         var blur = frost * 100;
         var thin = blur < 50 ? 0.7f + 0.3f * blur / 50 : 1;
-        return (0.22f + 0.36f * (float)Math.Clamp(brightness, 0, 1)) * thin;
+        // Lighter smoke than before, so more of the screen behind comes through (dark glass, not a
+        // dark slab); legibility over a bright background is still guaranteed by ClassicSmoke's Max.
+        return (0.15f + 0.34f * (float)Math.Clamp(brightness, 0, 1)) * thin;
     }
 
     /// <summary>
@@ -416,7 +445,7 @@ internal static class LiquidGlass
                {
                    IsAntialias = true,
                    Shader = SKShader.CreateLinearGradient(new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Left, rect.Top + rect.Height * 0.55f),
-                       [SKColors.White.WithAlpha((byte)(38 * rimk)), SKColors.White.WithAlpha(0)], SKShaderTileMode.Clamp),
+                       [SKColors.White.WithAlpha((byte)(52 * rimk)), SKColors.White.WithAlpha(0)], SKShaderTileMode.Clamp),
                })
             canvas.DrawPath(shape, sheen);
         canvas.Restore();
@@ -424,7 +453,7 @@ internal static class LiquidGlass
         using var outline = new SKPaint
         {
             IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1,
-            Color = SKColors.White.WithAlpha((byte)(46 * rimk)),
+            Color = SKColors.White.WithAlpha((byte)(64 * rimk)),
         };
         var inner = SKRect.Inflate(rect, -0.5f, -0.5f);
         var r = Math.Max(0, Math.Min(radius, Math.Min(rect.Width, rect.Height) / 2) - 0.5f);

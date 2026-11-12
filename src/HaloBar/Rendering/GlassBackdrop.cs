@@ -144,7 +144,9 @@ internal sealed class GlassBackdrop : IGlassSource
     /// </summary>
     public static float SigmaFor(int blur) => Prefs.GlassClassic
         ? ClassicSigma(blur) / ShrinkFor(blur)
-        : (2.2f + blur / 100f * 14f) / ShrinkFor(blur);
+        // At 0 the glass is truly clear: no softening at all, so text behind stays sharp. Above 0 it
+        // keeps the small base so sharp text behind doesn't shimmer against the island's own.
+        : (blur <= 0 ? 0f : 2.2f + blur / 100f * 14f) / ShrinkFor(blur);
 
     private static SKImageFilter? BlurFor(int blur) =>
         SigmaFor(blur) is var sigma && sigma < 0.3f ? null : SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp);
