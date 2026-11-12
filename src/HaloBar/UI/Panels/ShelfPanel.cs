@@ -206,7 +206,8 @@ internal sealed class ShelfPanel : Panel
             var kind = entry.Kind switch { ClipKind.Image => "Picture", ClipKind.Files => "Files", _ => "Text" };
             var line = flashing ? "Copied" : entry.Preview.ReplaceLineEndings(" ");
             ui.Text(line, row.Left + 10, row.MidY + 4, row.Width - 130, 11.5f, flashing ? Theme.Weight.Bold : Theme.Weight.Regular, flashing ? Theme.OnAccent : Theme.Text);
-            if (!flashing) ui.Text($"{kind} · {Ui.Ago(entry.Time)}", row.Right - 34, row.MidY + 4, 90, 10, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Right);
+            // While hovered, the action buttons take the right end, so the kind·time label steps aside.
+            if (!flashing && !hovered) ui.Text($"{kind} · {Ui.Ago(entry.Time)}", row.Right - 34, row.MidY + 4, 90, 10, Theme.Weight.Regular, Theme.Faint, SKTextAlign.Right);
             var chosen = entry;
             ui.Hit(SKRect.Intersect(row, area), () =>
             {
